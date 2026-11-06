@@ -183,6 +183,8 @@
 		var screens = {
 			welcome: welcome,
 			form: form,
+			search: search,
+			pick: pick,
 			result: result,
 			booked: booked,
 			abhaMethod: abhaMethod,
@@ -233,7 +235,108 @@
 			button("Start registration", function () {
 				go("form");
 			}),
+			button(
+				"I am already registered",
+				function () {
+					go("search");
+				},
+				"secondary",
+			),
 		]);
+	}
+
+	function search() {
+		return h(
+			"form",
+			{ class: "screen", novalidate: true, onsubmit: submitSearch },
+			[
+				h("h1", {}, "Find your record"),
+				field("mobile", "Mobile number", {
+					type: "tel",
+					inputmode: "numeric",
+					value: S.mobile || "",
+					required: true,
+					placeholder: "10 digit number",
+				}),
+				h("div", { class: "actions" }, [
+					button("Back", reset, "secondary"),
+					h("button", { type: "submit", class: "btn primary" }, "Search"),
+				]),
+			],
+		);
+	}
+
+	function submitSearch(event) {
+		event.preventDefault();
+		var mobile = value("mobile");
+		run(call(KIOSK, "search_by_mobile", { mobile: mobile }), function (found) {
+			S.mobile = mobile;
+			S.matches = found.matches;
+			go("pick");
+		});
+	}
+
+	function pick() {
+		var matches = S.matches || [];
+		if (!matches.length)
+			return h("div", { class: "screen" }, [
+				h("h1", {}, "We could not find a record"),
+				h(
+					"p",
+					{ class: "lead" },
+					"Check the number, or register as a new patient.",
+				),
+				h("div", { class: "actions stack" }, [
+					button("Register as a new patient", function () {
+						S.draft = { mobile: S.mobile };
+						go("form");
+					}),
+					button(
+						"Try another number",
+						function () {
+							go("search");
+						},
+						"secondary",
+					),
+					button("Done", reset, "secondary"),
+				]),
+			]);
+		return h("div", { class: "screen" }, [
+			h("h1", {}, "Touch your name"),
+			h(
+				"div",
+				{ class: "actions stack" },
+				matches.map(function (m) {
+					return button(
+						m.name + (m.age ? ", " + m.age + " yrs" : ""),
+						function () {
+							selectPatient(m.ref);
+						},
+						"secondary",
+					);
+				}),
+			),
+			S.error ? h("p", { class: "error", role: "alert" }, S.error) : null,
+			h("div", { class: "actions stack" }, [
+				button(
+					"I am not on this list",
+					function () {
+						S.draft = { mobile: S.mobile };
+						go("form");
+					},
+					"secondary",
+				),
+				button("Back", reset, "secondary"),
+			]),
+		]);
+	}
+
+	function selectPatient(ref) {
+		run(call(KIOSK, "select_patient", { ref: ref }), function (patient) {
+			S.patient = patient;
+			S.matches = null;
+			go("result");
+		});
 	}
 
 	function form() {
@@ -324,7 +427,9 @@
 		var actions = [button("Print my token", printSlip)];
 		if (BOOT.enable_appointment)
 			actions.push(button("Book my appointment", bookAppointment, "secondary"));
-		if (BOOT.enable_abha && !p.already_registered)
+		// A patient matched by DOB at registration has no UHID on screen and no ABHA steps; one who picked
+		// their own name from the mobile search does.
+		if (BOOT.enable_abha && (!p.already_registered || p.uhid) && !p.abha_linked)
 			actions.push(
 				button(
 					"Create or link my ABHA",
@@ -341,23 +446,27 @@
 				"h1",
 				{},
 				p.already_registered
-					? "Welcome back, " + p.first_name
+					? "Welcome back, " + (p.first_name || p.patient_name)
 					: "You are registered",
 			),
 			h("p", { class: "token-label" }, "Your token"),
 			h("p", { class: "token" }, String(p.token_number)),
-			// A returning patient's name and UHID are not shown (mobile + DOB is weak proof of who is here);
-			// they print on the slip.
+			// Matched by mobile + DOB at registration: no name or UHID on screen (weak proof of who is here).
+			// Picked from the mobile search: the clinic accepts the number as proof, so their details show.
 			h(
 				"dl",
 				{ class: "facts" },
-				p.already_registered
+				p.already_registered && !p.uhid
 					? [h("dt", {}, "Mobile"), h("dd", {}, p.masked_mobile)]
 					: [
 							h("dt", {}, "Name"),
 							h("dd", {}, p.patient_name),
 							h("dt", {}, "UHID"),
 							h("dd", {}, p.uhid),
+							p.age ? h("dt", {}, "Age") : null,
+							p.age
+								? h("dd", {}, p.age + (p.sex ? ", " + p.sex : ""))
+								: null,
 							h("dt", {}, "Mobile"),
 							h("dd", {}, p.masked_mobile),
 					  ],

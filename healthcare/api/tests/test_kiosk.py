@@ -931,6 +931,63 @@ class TestKioskRegister(KioskTestCase):
 		self.assertRaises(frappe.PermissionError, kiosk_common.assert_bound, result["uhid"])
 
 
+class TestKioskMobileSearch(KioskTestCase):
+	def test_search_lists_names_and_ages_behind_opaque_references(self):
+		args = patient_args()
+		registered = kiosk.register_patient(**args)
+		found = kiosk.search_by_mobile(args["mobile"])["matches"]
+
+		self.assertEqual(len(found), 1)
+		self.assertEqual(set(found[0]), {"ref", "name", "age"})
+		self.assertEqual(found[0]["name"], registered["patient_name"])
+
+	def test_unknown_number_finds_nothing_and_a_bad_number_is_refused(self):
+		self.assertEqual(kiosk.search_by_mobile("9123456780"), {"matches": []})
+		self.assertRaises(frappe.ValidationError, kiosk.search_by_mobile, "12345")
+
+	def test_picking_a_name_issues_the_token_and_shows_limited_details(self):
+		args = patient_args()
+		registered = kiosk.register_patient(**args)
+		with session_id("device-2"):
+			ref = kiosk.search_by_mobile(args["mobile"])["matches"][0]["ref"]
+			result = kiosk.select_patient(ref)
+
+			self.assertEqual(result["uhid"], registered["uhid"])
+			self.assertEqual(result["token"], registered["token"])  # one token per patient per day
+			self.assertEqual(result["masked_mobile"], "XXXXXX" + args["mobile"][-4:])
+			self.assertFalse(result["abha_linked"])
+			self.assertNotIn("dob", result)
+			self.assertNotIn(args["mobile"], json.dumps(result))
+			# the picked patient may now print the slip and take the ABHA steps
+			self.assertTrue(kiosk.get_token_slip(result["token"])["html"])
+			kiosk_common.assert_bound(result["uhid"], require_created=True)
+
+	def test_a_reference_from_another_session_is_refused(self):
+		args = patient_args()
+		kiosk.register_patient(**args)
+		with session_id("device-1"):
+			ref = kiosk.search_by_mobile(args["mobile"])["matches"][0]["ref"]
+		with session_id("device-2"):
+			self.assertRaises(frappe.PermissionError, kiosk.select_patient, ref)
+		self.assertRaises(frappe.PermissionError, kiosk.select_patient, "made-up")
+		self.assertRaises(frappe.PermissionError, kiosk.select_patient, None)
+
+	def test_searching_alone_binds_nothing(self):
+		args = patient_args()
+		registered = kiosk.register_patient(**args)
+		with session_id("device-2"):
+			kiosk.search_by_mobile(args["mobile"])
+			self.assertRaises(frappe.PermissionError, kiosk_common.assert_bound, registered["uhid"])
+
+	def test_search_is_rate_limited_and_post_only(self):
+		for _ in range(10):
+			kiosk.search_by_mobile("9123456780")
+		with self.assertRaises(frappe.TooManyRequestsError):
+			kiosk.search_by_mobile("9123456780")
+		for fn in (kiosk.search_by_mobile, kiosk.select_patient):
+			self.assertEqual(frappe.allowed_http_methods_for_whitelisted_func[fn], ["POST"])
+
+
 class TestKioskSlip(KioskTestCase):
 	def test_slip_shows_the_five_values_and_nothing_private(self):
 		camp = make_camp()

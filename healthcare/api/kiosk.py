@@ -23,6 +23,9 @@ _MOBILE_RE = re.compile(r"^[6-9]\d{9}$")
 _BAD_NAME_CHARS = re.compile(r"[<>{}\x00-\x1f]")
 _MAX_NAME_LENGTH = 140
 _MAX_AGE_YEARS = 130
+# A mobile can be shared by a family; more matches than this is not a list a person can pick from
+_MAX_MATCHES = 10
+_SEARCH_PREFILTER_LIMIT = 200
 # A patient insert creates a Customer and runs several hooks; a lost lock lets a second request in
 _LOCK_TIMEOUT = 30
 
@@ -111,6 +114,73 @@ def register_patient(
 	else:
 		result.update({"uhid": patient.name, "patient_name": patient.patient_name})
 	return result
+
+
+@frappe.whitelist(methods=["POST"])
+@common.kiosk_endpoint
+def search_by_mobile(mobile=None):
+	"""Names registered under a mobile number, for the patient to pick their own from.
+
+	Mobile alone is the proof here, by the clinic's choice: the list carries names and ages only, each with an
+	opaque reference good for this session. No UHID, DOB, address or ABHA reaches the screen until one is picked.
+	"""
+	common.throttle("search_by_mobile")
+	mobile = normalise_mobile(mobile)
+	rows = frappe.get_all(
+		"Patient",
+		filters={"mobile": ("like", f"%{mobile[-4:]}")},
+		fields=["name", "patient_name", "dob", "mobile"],
+		order_by="patient_name",
+		limit=_SEARCH_PREFILTER_LIMIT,
+	)
+	matches = [row for row in rows if _last_ten_digits(row.mobile) == mobile][:_MAX_MATCHES]
+	return {
+		"matches": [
+			{"ref": common.offer_candidate(row.name), "name": row.patient_name, "age": _age_text(row.dob)}
+			for row in matches
+		]
+	}
+
+
+@frappe.whitelist(methods=["POST"])
+@common.kiosk_endpoint
+def select_patient(ref=None):
+	"""The patient picked from the mobile search: show their limited details and issue today's token."""
+	common.throttle("select_patient")
+	settings = common.get_settings()
+	camp = common.get_active_camp(settings)
+	name = common.resolve_candidate(ref)
+
+	lock_name = frappe.cache.make_key(f"kiosk:select:{_digest(name)}")
+	with _locked_and_committed(lock_name):
+		patient = frappe.db.get_value(
+			"Patient", name, ["name", "patient_name", "sex", "dob", "mobile"], as_dict=True
+		)
+		if not patient:
+			frappe.throw(_("This action is not available."), frappe.PermissionError)
+		token = _issue_token(patient, camp)
+		common.bind_patient(patient.name, created=False, selected=True)
+
+	return {
+		"already_registered": True,
+		"patient_name": patient.patient_name,
+		"uhid": patient.name,  # needed by the ABHA steps; shown only after the patient picked their own name
+		"sex": patient.sex,
+		"age": _age_text(patient.dob),
+		"masked_mobile": _mask_mobile(_last_ten_digits(patient.mobile)),
+		"abha_linked": bool(frappe.db.exists("ABHA Record", {"patient": patient.name})),
+		"token_number": token.token_number,
+		"token": token.name,
+		"camp": camp.camp_name if camp else None,
+	}
+
+
+def _age_text(dob):
+	if not dob:
+		return None
+	today = getdate(nowdate())
+	dob = getdate(dob)
+	return str(today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day)))
 
 
 def _digest(*parts):

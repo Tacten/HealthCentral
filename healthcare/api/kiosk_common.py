@@ -215,18 +215,50 @@ def _touch(key):
 	frappe.cache.expire_key(key, _ttl())
 
 
-def bind_patient(patient: str, created: bool):
+def _candidate_key(ref):
+	return f"{_session_prefix()}candidate:{ref}"
+
+
+def offer_candidate(patient: str) -> str:
+	"""An opaque, single-session reference for a mobile-search match: the screen never receives the UHID."""
+	ref = frappe.generate_hash(length=16)
+	frappe.cache.set_value(_candidate_key(ref), patient, expires_in_sec=_ttl())
+	return ref
+
+
+def resolve_candidate(ref) -> str:
+	"""The patient behind a reference this session was offered; anything else is refused."""
+	key = _candidate_key(ref) if isinstance(ref, str) and ref else None
+	patient = frappe.cache.get_value(key, expires=True) if key else None
+	if not patient:
+		frappe.throw(_("This action is not available."), frappe.PermissionError)
+	_touch(key)
+	return patient
+
+
+def bind_patient(patient: str, created: bool, selected: bool = False):
 	key = _patient_key(patient)
 	entry = frappe.cache.get_value(key, expires=True) or {}
-	# created is sticky: a patient this session made stays eligible for ABHA even if re-submitted
-	frappe.cache.set_value(key, {"created": bool(created or entry.get("created"))}, expires_in_sec=_ttl())
+	# Both flags are sticky: a patient this session made, or picked from its own mobile search, stays eligible
+	frappe.cache.set_value(
+		key,
+		{
+			"created": bool(created or entry.get("created")),
+			"selected": bool(selected or entry.get("selected")),
+		},
+		expires_in_sec=_ttl(),
+	)
 
 
 def assert_bound(patient: str, require_created: bool = False):
-	"""Refuse a patient this kiosk session did not register (require_created) or at least match."""
+	"""Refuse a patient this kiosk session did not register or pick from its own search.
+
+	require_created is the gate for ABHA steps: the patient was registered here, or chosen from this session's
+	mobile search. ABDM itself still proves ownership of the ABHA by OTP before anything is linked.
+	"""
 	key = _patient_key(patient)
 	entry = frappe.cache.get_value(key, expires=True)
-	if not entry or (require_created and not entry["created"]):
+	if not entry or (require_created and not (entry["created"] or entry.get("selected"))):
 		frappe.throw(_("This action is not available."), frappe.PermissionError)
 	_touch(key)
 
