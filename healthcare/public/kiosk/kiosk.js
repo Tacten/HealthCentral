@@ -196,19 +196,24 @@
 			abhaDone: abhaDone,
 		};
 		var content = unavailable() || screens[S.screen]();
-		ROOT.replaceChildren(
+		var card = h("section", { class: "card" }, [
+			content,
+			S.error ? h("p", { class: "error", role: "alert" }, S.error) : null,
+			busy ? h("p", { class: "busy" }, "Please wait...") : null,
+		]);
+		// Not replaceChildren(null, card): the DOM turns a null argument into the text "null"
+		ROOT.replaceChildren.apply(
+			ROOT,
 			BOOT.preview
-				? h(
-						"p",
-						{ class: "banner" },
-						"Preview: sign in as the Kiosk user to register patients.",
-				  )
-				: null,
-			h("section", { class: "card" }, [
-				content,
-				S.error ? h("p", { class: "error", role: "alert" }, S.error) : null,
-				busy ? h("p", { class: "busy" }, "Please wait...") : null,
-			]),
+				? [
+						h(
+							"p",
+							{ class: "banner" },
+							"Preview: sign in as the Kiosk user to register patients.",
+						),
+						card,
+				  ]
+				: [card],
 		);
 		var first = ROOT.querySelector("input, select");
 		if (first && !busy) first.focus({ preventScroll: true });
@@ -291,7 +296,6 @@
 							required: true,
 							placeholder: "10 digit number",
 					  }),
-				S.error ? h("p", { class: "error", role: "alert" }, S.error) : null,
 				h("div", { class: "actions" }, [
 					button("Back", reset, "secondary"),
 					h("button", { type: "submit", class: "btn primary" }, "Search"),
@@ -355,7 +359,6 @@
 					);
 				}),
 			),
-			S.error ? h("p", { class: "error", role: "alert" }, S.error) : null,
 			h("div", { class: "actions stack" }, [
 				button(
 					"I am not on this list",
