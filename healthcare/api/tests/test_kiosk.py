@@ -439,8 +439,19 @@ def patient_count():
 
 
 RESULT_KEYS = {"uhid", "patient_name", "already_registered", "masked_mobile", "token_number", "token", "camp"}
-# A returning patient is greeted by first name only: no UHID and no full name reach the screen
-MATCHED_KEYS = {"first_name", "already_registered", "masked_mobile", "token_number", "token", "camp"}
+# A returning patient (matched by mobile + DOB, or picked from the mobile search): limited details, never DOB
+MATCHED_KEYS = {
+	"already_registered",
+	"patient_name",
+	"uhid",
+	"sex",
+	"age",
+	"masked_mobile",
+	"abha_linked",
+	"token_number",
+	"token",
+	"camp",
+}
 
 
 def uhid_of(result):
@@ -507,10 +518,10 @@ class TestKioskRegister(KioskTestCase):
 		self.assertEqual(patient_count(), count)
 		self.assertEqual(set(again), MATCHED_KEYS)
 		self.assertEqual(again["masked_mobile"], first["masked_mobile"])
-		# the stored first name, not the new input, and neither the UHID nor the full name
-		self.assertEqual(again["first_name"], frappe.db.get_value("Patient", first["uhid"], "first_name"))
-		self.assertNotIn(first["uhid"], json.dumps(again))
-		self.assertNotIn(first["patient_name"], json.dumps(again))
+		# the stored name, not the new input, and never the DOB or the full mobile
+		self.assertEqual(again["patient_name"], first["patient_name"])
+		self.assertNotIn("dob", again)
+		self.assertNotIn(args["mobile"], json.dumps(again))
 
 	def test_dedupe_ignores_the_duplicate_check_setting(self):
 		args = patient_args()
@@ -589,14 +600,16 @@ class TestKioskRegister(KioskTestCase):
 		with session_id("another-device"):
 			self.assertRaises(frappe.PermissionError, kiosk_common.assert_bound, uhid_of(again))
 
-	def test_matched_patient_is_not_marked_created(self):
+	def test_a_matched_patient_is_bound_as_selected_not_created(self):
 		args = patient_args()
 		with session_id("device-1"):
 			kiosk.register_patient(**args)
 		with session_id("device-2"):
 			matched = kiosk.register_patient(**args)
 			kiosk_common.assert_bound(uhid_of(matched))
-			self.assertRaises(frappe.PermissionError, kiosk_common.assert_bound, uhid_of(matched), True)
+			entry = frappe.cache.get_value(kiosk_common._patient_key(uhid_of(matched)), expires=True)
+			self.assertFalse(entry["created"])
+			self.assertTrue(entry["selected"])
 
 	def test_kiosk_user_cannot_read_patients(self):
 		result = kiosk.register_patient(**patient_args())
@@ -875,18 +888,16 @@ class TestKioskRegister(KioskTestCase):
 		self.assertIn("ask for help", str(ctx.exception))
 		self.assertTrue(log.call_args_list[0].kwargs.get("defer_insert"))
 
-	def test_a_returning_patient_is_greeted_by_first_name_only(self):
+	def test_a_returning_patient_sees_limited_details_and_can_print_the_slip(self):
 		args = patient_args()
 		with session_id("device-1"):
 			first = kiosk.register_patient(**args)
 		with session_id("device-2"):
 			again = kiosk.register_patient(**args)
-			self.assertNotIn("uhid", again)
-			self.assertNotIn("patient_name", again)
-			# the slip, fetched with the token, is where the UHID and full name appear
+			self.assertEqual(again["uhid"], first["uhid"])
+			self.assertEqual(again["patient_name"], first["patient_name"])
 			html = kiosk.get_token_slip(again["token"])["html"]
 			self.assertIn(first["uhid"], html)
-			self.assertIn(first["patient_name"], html)
 
 	def test_endpoints_accept_post_only(self):
 		for fn in (
@@ -1251,16 +1262,18 @@ class TestKioskAbha(KioskTestCase):
 					for fn in (a, b, c, d):
 						fn.assert_not_called()
 
-	def test_a_matched_patient_gets_no_abha_actions(self):
+	def test_a_matched_patient_gets_abha_actions_only_in_the_session_that_matched_them(self):
 		args = patient_args()
 		with session_id("device-1"):
 			kiosk.register_patient(**args)
 		with session_id("device-2"):
 			matched = kiosk.register_patient(**args)
 			self.assertTrue(matched["already_registered"])
+			kiosk_common.assert_bound(matched["uhid"], require_created=True)
+		with session_id("device-3"):
 			with patch.object(enrol, "generate_aadhaar_otp") as fn:
 				self.assertRaises(
-					frappe.PermissionError, kiosk_abha.send_aadhaar_otp, uhid_of(matched), AADHAAR
+					frappe.PermissionError, kiosk_abha.send_aadhaar_otp, matched["uhid"], AADHAAR
 				)
 				fn.assert_not_called()
 

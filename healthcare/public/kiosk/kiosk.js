@@ -427,9 +427,7 @@
 		var actions = [button("Print my token", printSlip)];
 		if (BOOT.enable_appointment)
 			actions.push(button("Book my appointment", bookAppointment, "secondary"));
-		// A patient matched by DOB at registration has no UHID on screen and no ABHA steps; one who picked
-		// their own name from the mobile search does.
-		if (BOOT.enable_abha && (!p.already_registered || p.uhid) && !p.abha_linked)
+		if (BOOT.enable_abha && !p.abha_linked)
 			actions.push(
 				button(
 					"Create or link my ABHA",
@@ -446,31 +444,22 @@
 				"h1",
 				{},
 				p.already_registered
-					? "Welcome back, " + (p.first_name || p.patient_name)
+					? "Welcome back, " + p.patient_name
 					: "You are registered",
 			),
 			h("p", { class: "token-label" }, "Your token"),
 			h("p", { class: "token" }, String(p.token_number)),
-			// Matched by mobile + DOB at registration: no name or UHID on screen (weak proof of who is here).
-			// Picked from the mobile search: the clinic accepts the number as proof, so their details show.
-			h(
-				"dl",
-				{ class: "facts" },
-				p.already_registered && !p.uhid
-					? [h("dt", {}, "Mobile"), h("dd", {}, p.masked_mobile)]
-					: [
-							h("dt", {}, "Name"),
-							h("dd", {}, p.patient_name),
-							h("dt", {}, "UHID"),
-							h("dd", {}, p.uhid),
-							p.age ? h("dt", {}, "Age") : null,
-							p.age
-								? h("dd", {}, p.age + (p.sex ? ", " + p.sex : ""))
-								: null,
-							h("dt", {}, "Mobile"),
-							h("dd", {}, p.masked_mobile),
-					  ],
-			),
+			// A returning patient (matched at registration, or picked from the mobile search) sees limited details.
+			h("dl", { class: "facts" }, [
+				h("dt", {}, "Name"),
+				h("dd", {}, p.patient_name),
+				h("dt", {}, "UHID"),
+				h("dd", {}, p.uhid),
+				p.age ? h("dt", {}, "Age") : null,
+				p.age ? h("dd", {}, p.age + (p.sex ? ", " + p.sex : "")) : null,
+				h("dt", {}, "Mobile"),
+				h("dd", {}, p.masked_mobile),
+			]),
 			S.notice ? h("p", { class: "notice" }, S.notice) : null,
 			h("div", { class: "actions stack" }, actions),
 		]);

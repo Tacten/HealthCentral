@@ -98,22 +98,20 @@ def register_patient(
 		# request's new patient with it, so there is nothing to bind and no other patient is ever adopted.
 		token = _issue_token(patient, camp)
 		# Inside the lock: a double-tap's second request cannot overwrite the sticky "created" flag afterwards
-		common.bind_patient(patient.name, created=not already_registered)
+		common.bind_patient(patient.name, created=not already_registered, selected=already_registered)
 
-	result = {
-		"already_registered": already_registered,
+	if already_registered:
+		# Same footing as picking a name from the mobile search: the clinic accepts the number as proof
+		return _returning_result(patient, token, camp)
+	return {
+		"already_registered": False,
+		"uhid": patient.name,
+		"patient_name": patient.patient_name,
 		"masked_mobile": _mask_mobile(data["mobile"]),
 		"token_number": token.token_number,
 		"token": token.name,
 		"camp": camp.camp_name if camp else None,
 	}
-	if already_registered:
-		# Mobile + DOB is weak proof of identity, so a returning patient is greeted by first name only. Their
-		# UHID and full name reach the screen never; they are on the printed slip, which the session may fetch.
-		result["first_name"] = patient.first_name
-	else:
-		result.update({"uhid": patient.name, "patient_name": patient.patient_name})
-	return result
 
 
 @frappe.whitelist(methods=["POST"])
@@ -161,10 +159,18 @@ def select_patient(ref=None):
 		token = _issue_token(patient, camp)
 		common.bind_patient(patient.name, created=False, selected=True)
 
+	return _returning_result(patient, token, camp)
+
+
+def _returning_result(patient, token, camp):
+	"""What the screen shows for a patient who was already registered: limited details and today's token.
+
+	The UHID is needed by the ABHA steps. Never DOB, address, email or the full mobile.
+	"""
 	return {
 		"already_registered": True,
 		"patient_name": patient.patient_name,
-		"uhid": patient.name,  # needed by the ABHA steps; shown only after the patient picked their own name
+		"uhid": patient.name,
 		"sex": patient.sex,
 		"age": _age_text(patient.dob),
 		"masked_mobile": _mask_mobile(_last_ten_digits(patient.mobile)),
@@ -430,7 +436,7 @@ def _find_existing_patient(dob, mobile):
 	"""Same DOB and the same last ten digits of mobile. Runs whether or not Healthcare Settings'
 	duplicate check is on, so a double-tap or a returning patient never gets a second record."""
 	for row in frappe.get_all(
-		"Patient", filters={"dob": dob}, fields=["name", "first_name", "patient_name", "mobile"]
+		"Patient", filters={"dob": dob}, fields=["name", "patient_name", "sex", "dob", "mobile"]
 	):
 		if _last_ten_digits(row.mobile) == mobile:
 			return row
