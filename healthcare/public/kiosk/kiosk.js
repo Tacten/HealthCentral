@@ -25,6 +25,8 @@
 			screen: "welcome",
 			patient: null,
 			mobile: "",
+			abha: "",
+			searchBy: "mobile",
 			txn: null,
 			flow: null,
 			error: "",
@@ -246,18 +248,50 @@
 	}
 
 	function search() {
+		var byAbha = S.searchBy === "abha";
 		return h(
 			"form",
 			{ class: "screen", novalidate: true, onsubmit: submitSearch },
 			[
 				h("h1", {}, "Find your record"),
-				field("mobile", "Mobile number", {
-					type: "tel",
-					inputmode: "numeric",
-					value: S.mobile || "",
-					required: true,
-					placeholder: "10 digit number",
-				}),
+				h(
+					"div",
+					{ class: "choices", role: "group", "aria-label": "Search by" },
+					[
+						button(
+							"Mobile number",
+							function () {
+								S.searchBy = "mobile";
+								render();
+							},
+							byAbha ? "secondary" : "primary",
+						),
+						button(
+							"ABHA address or number",
+							function () {
+								S.searchBy = "abha";
+								render();
+							},
+							byAbha ? "primary" : "secondary",
+						),
+					],
+				),
+				byAbha
+					? field("abha", "ABHA address or 14 digit ABHA number", {
+							value: S.abha || "",
+							required: true,
+							placeholder: "name@sbx or 14 digits",
+							autocapitalize: "none",
+							spellcheck: "false",
+					  })
+					: field("mobile", "Mobile number", {
+							type: "tel",
+							inputmode: "numeric",
+							value: S.mobile || "",
+							required: true,
+							placeholder: "10 digit number",
+					  }),
+				S.error ? h("p", { class: "error", role: "alert" }, S.error) : null,
 				h("div", { class: "actions" }, [
 					button("Back", reset, "secondary"),
 					h("button", { type: "submit", class: "btn primary" }, "Search"),
@@ -268,9 +302,14 @@
 
 	function submitSearch(event) {
 		event.preventDefault();
-		var mobile = value("mobile");
-		run(call(KIOSK, "search_by_mobile", { mobile: mobile }), function (found) {
-			S.mobile = mobile;
+		var byAbha = S.searchBy === "abha";
+		var typed = value(byAbha ? "abha" : "mobile");
+		var request = byAbha
+			? call(KIOSK, "search_by_abha", { abha: typed })
+			: call(KIOSK, "search_by_mobile", { mobile: typed });
+		run(request, function (found) {
+			if (byAbha) S.abha = typed;
+			else S.mobile = typed;
 			S.matches = found.matches;
 			go("pick");
 		});
@@ -284,15 +323,15 @@
 				h(
 					"p",
 					{ class: "lead" },
-					"Check the number, or register as a new patient.",
+					"Check what you entered, or register as a new patient.",
 				),
 				h("div", { class: "actions stack" }, [
 					button("Register as a new patient", function () {
-						S.draft = { mobile: S.mobile };
+						S.draft = { mobile: S.searchBy === "abha" ? "" : S.mobile };
 						go("form");
 					}),
 					button(
-						"Try another number",
+						"Search again",
 						function () {
 							go("search");
 						},
@@ -321,7 +360,7 @@
 				button(
 					"I am not on this list",
 					function () {
-						S.draft = { mobile: S.mobile };
+						S.draft = { mobile: S.searchBy === "abha" ? "" : S.mobile };
 						go("form");
 					},
 					"secondary",

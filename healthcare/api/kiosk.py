@@ -20,6 +20,8 @@ from frappe.utils import add_years, getdate, nowdate, validate_email_address
 from healthcare.api import kiosk_common as common
 
 _MOBILE_RE = re.compile(r"^[6-9]\d{9}$")
+_ABHA_ADDRESS_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{2,63}@[a-z]{2,10}$")
+_ABHA_NUMBER_RE = re.compile(r"^\d{14}$")
 _BAD_NAME_CHARS = re.compile(r"[<>{}\x00-\x1f]")
 _MAX_NAME_LENGTH = 140
 _MAX_AGE_YEARS = 130
@@ -132,12 +134,52 @@ def search_by_mobile(mobile=None):
 		limit=_SEARCH_PREFILTER_LIMIT,
 	)
 	matches = [row for row in rows if _last_ten_digits(row.mobile) == mobile][:_MAX_MATCHES]
+	return _match_list(matches)
+
+
+@frappe.whitelist(methods=["POST"])
+@common.kiosk_endpoint
+def search_by_abha(abha=None):
+	"""The same list, found by an ABHA address (name@sbx) or a 14 digit ABHA number instead of a mobile.
+
+	A local lookup of ABHA Records already linked at this clinic; ABDM is not called. The proof is the same as
+	for the mobile: knowing the identifier. Nothing is revealed until the patient picks their own name.
+	"""
+	common.throttle("search_by_abha")
+	field, value = _clean_abha(abha)
+	patients = frappe.get_all("ABHA Record", filters={field: value}, pluck="patient", limit=_MAX_MATCHES)
+	if not patients:
+		return {"matches": []}
+	rows = frappe.get_all(
+		"Patient",
+		filters={"name": ("in", patients)},
+		fields=["name", "patient_name", "dob"],
+		order_by="patient_name",
+	)
+	return _match_list(rows)
+
+
+def _match_list(rows):
+	"""Names and ages behind opaque, session-bound references; never the UHID."""
 	return {
 		"matches": [
 			{"ref": common.offer_candidate(row.name), "name": row.patient_name, "age": _age_text(row.dob)}
-			for row in matches
+			for row in rows
 		]
 	}
+
+
+def _clean_abha(value):
+	"""(ABHA Record field, value) for an ABHA address or a 14 digit ABHA number."""
+	text = _stripped(value).lower()
+	if "@" in text:
+		if _ABHA_ADDRESS_RE.match(text):
+			return "abha_address", text
+	else:
+		digits = re.sub(r"[\s-]", "", text)
+		if _ABHA_NUMBER_RE.match(digits):
+			return "abha_number", digits
+	frappe.throw(_("Please enter a valid ABHA address or 14 digit ABHA number."), frappe.ValidationError)
 
 
 @frappe.whitelist(methods=["POST"])

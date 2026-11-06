@@ -990,12 +990,36 @@ class TestKioskMobileSearch(KioskTestCase):
 			kiosk.search_by_mobile(args["mobile"])
 			self.assertRaises(frappe.PermissionError, kiosk_common.assert_bound, registered["uhid"])
 
+	def test_search_by_abha_address_or_number_finds_the_linked_patient(self):
+		registered = kiosk.register_patient(**patient_args())
+		with as_admin():
+			frappe.get_doc(
+				{
+					"doctype": "ABHA Record",
+					"abha_number": "91123456789012",
+					"abha_address": "asha.kiosk@sbx",
+					"patient": registered["uhid"],
+					"status": "ACTIVE",
+				}
+			).insert(ignore_permissions=True)
+		for query in ("asha.kiosk@sbx", "ASHA.KIOSK@SBX ", "91123456789012", "91-1234-5678-9012"):
+			with self.subTest(query=query):
+				found = kiosk.search_by_abha(query)["matches"]
+				self.assertEqual([m["name"] for m in found], [registered["patient_name"]])
+				self.assertEqual(set(found[0]), {"ref", "name", "age"})
+		self.assertEqual(kiosk.search_by_abha("nobody@sbx"), {"matches": []})
+
+	def test_search_by_abha_refuses_malformed_input(self):
+		for bad in (None, "", "not an abha", "1234", "x@", "@sbx", "a" * 80 + "@sbx", "9112345678901x"):
+			with self.subTest(bad=bad):
+				self.assertRaises(frappe.ValidationError, kiosk.search_by_abha, bad)
+
 	def test_search_is_rate_limited_and_post_only(self):
 		for _ in range(10):
 			kiosk.search_by_mobile("9123456780")
 		with self.assertRaises(frappe.TooManyRequestsError):
 			kiosk.search_by_mobile("9123456780")
-		for fn in (kiosk.search_by_mobile, kiosk.select_patient):
+		for fn in (kiosk.search_by_mobile, kiosk.search_by_abha, kiosk.select_patient):
 			self.assertEqual(frappe.allowed_http_methods_for_whitelisted_func[fn], ["POST"])
 
 
