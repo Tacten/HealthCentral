@@ -932,9 +932,19 @@ class TestKioskRegister(KioskTestCase):
 	def test_get_config(self):
 		config = kiosk.get_config()
 		self.assertEqual(
-			set(config), {"idle_timeout", "enable_abha", "enable_appointment", "camp", "camp_active"}
+			set(config),
+			{"hospital", "idle_timeout", "enable_abha", "enable_appointment", "camp", "camp_active"},
 		)
 		self.assertEqual(config["idle_timeout"], 60)
+
+	def test_the_hospital_name_comes_from_settings_else_the_default_company(self):
+		self.configure(hospital_name="Sunrise Hospital")
+		self.assertEqual(kiosk.get_config()["hospital"], "Sunrise Hospital")
+		self.configure(hospital_name="")
+		with patch.object(frappe.defaults, "get_defaults", return_value=frappe._dict(company="Acme Care")):
+			self.assertEqual(kiosk.get_config()["hospital"], "Acme Care")
+		with patch.object(frappe.defaults, "get_defaults", return_value=frappe._dict()):
+			self.assertEqual(kiosk.get_config()["hospital"], "")
 
 	def test_end_session_forgets_patients(self):
 		result = kiosk.register_patient(**patient_args())
@@ -1495,6 +1505,7 @@ class TestKioskPage(KioskTestCase):
 				"csrf_token",
 				"enabled",
 				"preview",
+				"hospital",
 				"idle_timeout",
 				"enable_abha",
 				"enable_appointment",

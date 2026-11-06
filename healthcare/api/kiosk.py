@@ -49,12 +49,18 @@ def config_for(settings):
 			camp_active = False
 
 	return {
+		"hospital": settings.hospital_name or _default_company_name(),
 		"idle_timeout": settings.idle_timeout,
 		"enable_abha": bool(settings.enable_abha),
 		"enable_appointment": bool(settings.enable_appointment) and camp_active and bool(camp_name),
 		"camp": camp_name,
 		"camp_active": camp_active,
 	}
+
+
+def _default_company_name():
+	"""The name of the default company, if the site has one; blank hides the header."""
+	return frappe.defaults.get_defaults().company or ""
 
 
 @frappe.whitelist(methods=["POST"])

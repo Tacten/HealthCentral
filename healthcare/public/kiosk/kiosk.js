@@ -201,20 +201,20 @@
 			S.error ? h("p", { class: "error", role: "alert" }, S.error) : null,
 			busy ? h("p", { class: "busy" }, "Please wait...") : null,
 		]);
+		var parts = [];
+		if (BOOT.preview)
+			parts.push(
+				h(
+					"p",
+					{ class: "banner" },
+					"Preview: sign in as the Kiosk user to register patients.",
+				),
+			);
+		if (BOOT.hospital)
+			parts.push(h("header", { class: "brand" }, h("h2", {}, BOOT.hospital)));
+		parts.push(card);
 		// Not replaceChildren(null, card): the DOM turns a null argument into the text "null"
-		ROOT.replaceChildren.apply(
-			ROOT,
-			BOOT.preview
-				? [
-						h(
-							"p",
-							{ class: "banner" },
-							"Preview: sign in as the Kiosk user to register patients.",
-						),
-						card,
-				  ]
-				: [card],
-		);
+		ROOT.replaceChildren.apply(ROOT, parts);
 		var first = ROOT.querySelector("input, select");
 		if (first && !busy) first.focus({ preventScroll: true });
 	}
