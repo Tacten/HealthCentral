@@ -50,8 +50,13 @@ export function AddressStep({ onNext }: { onNext: () => void }) {
     const address = isCustom ? custom.trim().toLowerCase() + domain : picked.includes("@") ? picked : picked + domain;
     setBusy(true);
     setError("");
+    // Snapshot the patient that started address creation. If staff switch patients
+    // while the request is in flight, the old step must not merge its result onto the
+    // new patient's state.
+    const startedPatient = known.patient;
     try {
-      const res = await setAddress(known.patient.name, address);
+      const res = await setAddress(startedPatient.name, address);
+      if (known.patient?.name !== startedPatient.name) return;
       dispatch({ type: "learn", patch: { abhaAddress: res.abha_address ?? address } });
       onNext();
     } catch (e) {

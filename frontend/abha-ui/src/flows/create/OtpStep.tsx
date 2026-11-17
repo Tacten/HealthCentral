@@ -13,7 +13,13 @@ export function OtpStep({ onNext, onBack }: { onNext: (mobileLinked: boolean) =>
 
   async function firstSend() {
     if (!patient || !known.aadhaar || !known.consent) throw new Error("The Aadhaar number or the agreement is missing. Go back and enter it.");
-    const res = await requestEnrolmentOtp(patient, known.aadhaar, known.consent.id);
+    // Snapshot the patient/consent that started this request. If staff switch patients
+    // while the OTP request is in flight, the old step must not merge its result onto the
+    // new patient's state.
+    const startedPatient = patient;
+    const startedConsentId = known.consent.id;
+    const res = await requestEnrolmentOtp(startedPatient, known.aadhaar, startedConsentId);
+    if (known.patient?.name !== startedPatient || known.consent?.id !== startedConsentId) return;
     dispatch({ type: "learn", patch: { txnId: res.txnId } });
   }
 
@@ -24,7 +30,10 @@ export function OtpStep({ onNext, onBack }: { onNext: (mobileLinked: boolean) =>
 
   async function verify(code: string) {
     if (!patient || !known.txnId) throw new Error("The OTP request has expired. Go back and send it again.");
-    const res = await completeEnrolment(patient, known.txnId, code);
+    // Snapshot the patient that started verification; reject the result if the patient changed.
+    const startedPatient = patient;
+    const res = await completeEnrolment(startedPatient, known.txnId, code);
+    if (known.patient?.name !== startedPatient) return;
     dispatch({ type: "learn", patch: { txnId: res.txnId ?? known.txnId, abhaNumber: res.abha_number, mobileLinked: res.mobile_linked } });
     dispatch({ type: "forget", keys: ["aadhaar"] });
     onNext(res.mobile_linked); // passed on directly: the store has not re-rendered yet

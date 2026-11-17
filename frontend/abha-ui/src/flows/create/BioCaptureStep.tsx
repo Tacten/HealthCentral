@@ -19,11 +19,17 @@ export function BioCaptureStep({ onNext, onBack }: { onNext: (mobileLinked: bool
   async function scan() {
     if (!known.patient || !known.aadhaar || !known.consent) return setError("The Aadhaar number or the agreement is missing. Go back and enter it.");
     setError("");
+    // Snapshot the patient/consent that started this scan. If staff switch patients
+    // while the scan and ABDM call are in flight, the old step must not merge its
+    // result onto the new patient's state.
+    const startedPatient = known.patient;
+    const startedConsentId = known.consent.id;
     try {
       setBusy("scan");
       const pid = await rd.capture();
       setBusy("send");
-      const res = await enrolByBiometric(known.patient.name, known.aadhaar, pid, known.consent.id);
+      const res = await enrolByBiometric(startedPatient.name, known.aadhaar, pid, startedConsentId);
+      if (known.patient?.name !== startedPatient.name || known.consent?.id !== startedConsentId) return;
       dispatch({ type: "learn", patch: { txnId: res.txnId, abhaNumber: res.abha_number, mobileLinked: res.mobile_linked } });
       dispatch({ type: "forget", keys: ["aadhaar"] });
       onNext(res.mobile_linked);

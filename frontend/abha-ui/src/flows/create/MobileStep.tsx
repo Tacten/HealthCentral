@@ -23,14 +23,22 @@ export function MobileStep({ hasMobile, onNext }: { hasMobile: boolean; onNext: 
 
   async function send() {
     if (!patient || !known.txnId) throw new Error("The enrolment session has expired. Start again.");
-    const res = await sendMobileOtp(patient, known.txnId, chosen || undefined);
+    // Snapshot the patient that started this OTP request. If staff switch patients
+    // while the request is in flight, the old step must not merge its result onto the
+    // new patient's state.
+    const startedPatient = patient;
+    const res = await sendMobileOtp(startedPatient, known.txnId, chosen || undefined);
+    if (known.patient?.name !== startedPatient) return;
     dispatch({ type: "learn", patch: { txnId: res.txnId ?? known.txnId } });
   }
 
   async function verify(code: string) {
     if (!patient || !known.txnId) throw new Error("The enrolment session has expired. Start again.");
-    const res = await verifyMobileOtp(patient, known.txnId, code);
+    // Snapshot the patient that started verification; reject the result if the patient changed.
+    const startedPatient = patient;
+    const res = await verifyMobileOtp(startedPatient, known.txnId, code);
     void res;
+    if (known.patient?.name !== startedPatient) return;
     dispatch({ type: "forget", keys: ["communicationMobile"] });
     onNext();
   }
