@@ -1182,7 +1182,7 @@ function makeQRCode(text, size, errorCorrectLevel) {
 	}
 
 	// ----------------------------------------------------------------------------------------------
-	// ABHA: create by Aadhaar OTP, create by mobile OTP, or link an ABHA the patient already has
+	// ABHA: create by Aadhaar OTP, or link an ABHA the patient already has
 	// ----------------------------------------------------------------------------------------------
 
 	function abhaMethod() {
@@ -1194,14 +1194,6 @@ function makeQRCode(text, size, errorCorrectLevel) {
 					S.flow = "aadhaar";
 					showConsent();
 				}),
-				button(
-					"Create ABHA with mobile number",
-					function () {
-						S.flow = "mobile";
-						showConsent();
-					},
-					"secondary",
-				),
 				button(
 					"I already have an ABHA",
 					function () {
@@ -1265,16 +1257,12 @@ function makeQRCode(text, size, errorCorrectLevel) {
 		});
 	}
 
-	// First input of every flow: Aadhaar number, mobile number or ABHA address
+	// First input of every flow: Aadhaar number or ABHA address
 	function abhaAadhaar() {
 		var cfg = {
 			aadhaar: [
 				"Aadhaar number",
 				{ inputmode: "numeric", maxlength: 14, placeholder: "12 digit number" },
-			],
-			mobile: [
-				"Mobile number",
-				{ type: "tel", inputmode: "numeric", value: S.mobile },
 			],
 			link: ["ABHA address", { placeholder: "name@abdm" }],
 		}[S.flow];
@@ -1310,13 +1298,6 @@ function makeQRCode(text, size, errorCorrectLevel) {
 		var request = {
 			aadhaar: function () {
 				return call(ABHA, "send_aadhaar_otp", { patient: p, aadhaar: input });
-			},
-			mobile: function () {
-				S.mobile = input;
-				return call(ABHA, "send_mobile_otp_create", {
-					patient: p,
-					mobile: input,
-				});
 			},
 			link: function () {
 				return call(ABHA, "send_link_otp", { patient: p, abha_address: input });
@@ -1385,19 +1366,6 @@ function makeQRCode(text, size, errorCorrectLevel) {
 					otp: otp,
 				}),
 				loadSuggestions,
-			);
-		}
-		if (S.flow === "mobile") {
-			return run(
-				call(ABHA, "verify_mobile_otp_create", {
-					patient: p,
-					txn_id: t,
-					otp: otp,
-				}),
-				function (verified) {
-					S.txn = verified.txn_id;
-					loadSuggestions();
-				},
 			);
 		}
 		S.mobile = value("abha_mobile") || S.mobile;

@@ -1,4 +1,4 @@
-"""Kiosk wrappers around the existing ABDM M1 flows (create an ABHA by Aadhaar or mobile OTP, or link one).
+"""Kiosk wrappers around the existing ABDM M1 flows (create an ABHA by Aadhaar OTP, or link one).
 
 The M1 endpoints need write permission on the Patient (AbhaClient._assert_patient_permission), which the
 create-only Kiosk role does not have, and that guard stays exactly as it is. These wrappers instead:
@@ -147,35 +147,7 @@ def verify_enrol_mobile_otp(patient=None, txn_id=None, otp=None):
 
 
 # --------------------------------------------------------------------------------------------------
-# Create by mobile OTP
-# --------------------------------------------------------------------------------------------------
-
-
-@frappe.whitelist(methods=["POST"])
-@common.kiosk_endpoint
-def send_mobile_otp_create(patient=None, mobile=None):
-	mobile = _digits(mobile, _MOBILE_RE, _("Please enter your 10 digit mobile number."))
-	result = _send_after_consent(
-		"abha_send_create_otp", patient, lambda: enrol.generate_mobile_otp(patient, mobile), "Mobile OTP"
-	)
-	return {"txn_id": _bind_txn(result.get("txnId"), patient)}
-
-
-@frappe.whitelist(methods=["POST"])
-@common.kiosk_endpoint
-def verify_mobile_otp_create(patient=None, txn_id=None, otp=None):
-	otp = _digits(otp, _OTP_RE, _("Please enter the 6 digit OTP."))
-	result = _run(
-		"abha_verify_create_otp",
-		patient,
-		lambda: enrol.verify_mobile_otp_enrol(patient, txn_id, otp),
-		txn_id=txn_id,
-	)
-	return {"txn_id": _bind_txn(result.get("txnId"), patient) or txn_id}
-
-
-# --------------------------------------------------------------------------------------------------
-# Choose an ABHA address (after either create flow)
+# Choose an ABHA address (after the create flow)
 # --------------------------------------------------------------------------------------------------
 
 
