@@ -10,7 +10,7 @@ import { ErrorNote } from "../../ui/ErrorNote";
  * Scan a fingerprint on the registered device and create the ABHA. The PID block lives in this function only: it is
  * passed straight to the server and then dropped. A failed scan shows why and the person scans again.
  */
-export function BioCaptureStep({ onNext, onBack }: { onNext: (mobileLinked: boolean) => void; onBack: () => void }) {
+export function BioCaptureStep({ onNext, onBack }: { onNext: (result: { mobileLinked: boolean; isNew: boolean }) => void; onBack: () => void }) {
   const rd = useRd();
   const { known, dispatch } = useKnown();
   const [busy, setBusy] = useState<"" | "scan" | "send">("");
@@ -30,9 +30,10 @@ export function BioCaptureStep({ onNext, onBack }: { onNext: (mobileLinked: bool
       setBusy("send");
       const res = await enrolByBiometric(startedPatient.name, known.aadhaar, pid, startedConsentId);
       if (known.patient?.name !== startedPatient.name || known.consent?.id !== startedConsentId) return;
-      dispatch({ type: "learn", patch: { txnId: res.txnId, abhaNumber: res.abha_number, mobileLinked: res.mobile_linked } });
+      const enrolRes = res as { mobile_linked: boolean; is_new: boolean; abha_number: string; txnId?: string };
+      dispatch({ type: "learn", patch: { txnId: res.txnId, abhaNumber: res.abha_number, mobileLinked: res.mobile_linked, isNew: enrolRes.is_new } });
       dispatch({ type: "forget", keys: ["aadhaar"] });
-      onNext(res.mobile_linked);
+      onNext({ mobileLinked: enrolRes.mobile_linked, isNew: enrolRes.is_new });
     } catch (e) {
       setError(e instanceof RdServiceError || e instanceof ApiError || e instanceof Error ? e.message : "The scan did not work. Try again.");
     } finally {

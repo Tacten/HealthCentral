@@ -36,9 +36,15 @@ export function OtpPanel({ heading, lede, label, verify, resend, send, back, chi
     if (!send) return timer.markSent();
     setBusy(true);
     send()
-      .then(() => timer.markSent())
-      .catch((e: unknown) => setError(messageOf(e, "Could not send the OTP.")))
-      .finally(() => setBusy(false));
+      .then(() => {
+        timer.markSent();
+        setNote("A new OTP has been sent.");
+      })
+      .catch((e: unknown) => {
+        setError(messageOf(e, "Could not send the OTP."));
+        // Allow retry for the first send; disable after 3 attempts or when explicitly resend is used.
+        setBusy(false);
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

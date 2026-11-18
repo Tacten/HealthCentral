@@ -153,9 +153,17 @@ def complete_enrolment(patient: str, txn_id: str, otp: str, mobile: str = "") ->
     ABDM links the mobile automatically when it matches the Aadhaar-linked one, which saves a second OTP. Giving it the
     number already on the Patient record means nobody is asked for it twice. When it does not match, the response says
     `mobile_linked: false` and the page runs the mobile-OTP step with the same number.
+
+    A usable mobile is required by the enrolment contract. If the Patient has no 10-digit mobile on record, the caller
+    must supply one before this call (the UI collects it before verifying the Aadhaar OTP).
     """
     patient = _patient(patient, "write")
     chosen = _ten_digits(mobile) or _ten_digits(frappe.db.get_value("Patient", patient, "mobile"))
+    if not chosen:
+        frappe.throw(
+            frappe._("Enter the patient's 10-digit mobile number to continue ABHA enrolment."),
+            frappe.ValidationError,
+        )
 
     from healthcare.regional.india.abdm.api.enrol import enrol_by_aadhaar
 

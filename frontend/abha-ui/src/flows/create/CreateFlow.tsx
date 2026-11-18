@@ -101,10 +101,10 @@ export function CreateFlow() {
       body = <AadhaarStep capture={route === "biometric"} onNext={() => go(route === "biometric" ? "capture" : "otp")} onConsentLost={restartConsent} />;
       break;
     case "otp":
-      body = <OtpStep onNext={(linked) => go(linked ? "address" : "mobile")} onBack={backToAadhaar} />;
+      body = <OtpStep hasMobile={ctx.patient.has_mobile} onNext={(result) => go(result.mobileLinked ? "address" : "mobile")} onBack={backToAadhaar} />;
       break;
     case "capture":
-      body = <BioCaptureStep onNext={(linked) => go(linked ? "address" : "mobile")} onBack={backToAadhaar} />;
+      body = <BioCaptureStep onNext={({ mobileLinked }) => go(mobileLinked ? "address" : "mobile")} onBack={backToAadhaar} />;
       break;
     case "mobile":
       body = <MobileStep hasMobile={ctx.patient.has_mobile} onNext={() => go("address")} />;
