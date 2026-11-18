@@ -53,7 +53,9 @@ def get_healthcare_services_to_invoice(patient, customer, company, link_customer
 def validate_customer_created(patient, customer, link_customer):
 	message = ""
 	if link_customer:
-		frappe.db.set_value("Patient", patient, "customer", customer)
+		# `patient` is the loaded Patient document. Frappe 16 passes `dn` straight
+		# through as a query filter, which rejects a document object.
+		frappe.db.set_value("Patient", patient.name, "customer", customer)
 		message = _("Customer {0} has been linked to Patient").format(customer)
 	elif not frappe.db.get_value("Patient", patient.name, "customer"):
 		message = _(
