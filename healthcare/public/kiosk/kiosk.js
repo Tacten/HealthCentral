@@ -19,6 +19,7 @@
 	var S = fresh(); // everything entered or received for the current patient
 	var busy = false;
 	var idleTimer = null;
+	var lastPing = 0;
 
 	function fresh() {
 		return {
@@ -773,6 +774,16 @@ function makeQRCode(text, size, errorCorrectLevel) {
 		clearTimeout(idleTimer);
 		if (S.screen === "welcome") return;
 		idleTimer = setTimeout(reset, BOOT.idle_timeout * 1000);
+		keepSessionAlive();
+	}
+
+	// Reading the terms takes longer than the server keeps a registration without a request, so while the patient
+	// is actively touching or scrolling that screen, tell the server. Stopping touching stops this too.
+	function keepSessionAlive() {
+		var now = Date.now();
+		if (S.screen !== "abhaConsent" || !S.patient || now - lastPing < 15000) return;
+		lastPing = now;
+		call(ABHA, "keep_alive", { patient: S.patient.uhid }).catch(function () {});
 	}
 
 	function reset() {
@@ -785,7 +796,7 @@ function makeQRCode(text, size, errorCorrectLevel) {
 			call(KIOSK, "end_session").catch(function () {});
 	}
 
-	["pointerdown", "keydown", "input", "touchstart"].forEach(function (name) {
+	["pointerdown", "keydown", "input", "touchstart", "scroll"].forEach(function (name) {
 		document.addEventListener(name, touch, true);
 	});
 
@@ -1216,7 +1227,7 @@ function makeQRCode(text, size, errorCorrectLevel) {
 	// Creating an ABHA needs the patient's agreement to ABDM's terms first. The server refuses to send any
 	// create OTP until it has recorded it, so this screen cannot be skipped by going straight to the next one.
 	function showConsent() {
-		run(call(ABHA, "get_consent_text", {}), function (found) {
+		run(call(ABHA, "get_consent_text", { patient: S.patient.uhid }), function (found) {
 			S.consent = found;
 			go("abhaConsent");
 		});

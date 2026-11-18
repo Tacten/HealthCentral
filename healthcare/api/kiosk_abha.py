@@ -41,13 +41,32 @@ _OTP_SYSTEMS = ("abdm", "aadhaar")
 
 @frappe.whitelist(methods=["POST"])
 @common.kiosk_endpoint
-def get_consent_text():
+def get_consent_text(patient=None):
 	"""ABDM's own wording, exactly as record_consent stores it, so the screen shows what is recorded."""
 	common.throttle("abha_get_consent_text")
 	if not common.get_settings().enable_abha:
 		frappe.throw(_("ABHA is not available."), frappe.ValidationError)
+	_assert_own_new_patient(patient)  # also keeps this patient's access alive while the terms are on screen
 	text = consent.get_consent_text()
 	return {key: text.get(key) for key in ("title", "text", "version")}
+
+
+@frappe.whitelist(methods=["POST"])
+@common.kiosk_endpoint
+def keep_alive(patient=None):
+	"""Refresh this session's access to a patient it registered, while that patient is reading the terms.
+
+	The screen calls it only on a touch, key press or scroll, so a patient who walks away stops refreshing it
+	and the access lapses on its normal idle timeout. It does nothing for a patient this session did not register.
+	"""
+	_assert_own_new_patient(patient)
+	return {}
+
+
+def _assert_own_new_patient(patient):
+	if not isinstance(patient, str) or not patient:
+		frappe.throw(_("This action is not available."), frappe.PermissionError)
+	common.assert_bound(patient, require_created=True)  # refreshes the binding's expiry as well
 
 
 @frappe.whitelist(methods=["POST"])
