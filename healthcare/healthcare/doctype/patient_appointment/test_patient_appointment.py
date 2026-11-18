@@ -679,7 +679,7 @@ def create_healthcare_docs(id=0):
 def create_patient(
 	id=0, patient_name=None, email=None, mobile=None, customer=None, create_user=False
 ):
-	if frappe.db.exists("Patient", {"firstname": f"_Test Patient {str(id)}"}):
+	if frappe.db.exists("Patient", {"first_name": f"_Test Patient {str(id)}"}):
 		patient = frappe.db.get_value("Patient", {"first_name": f"_Test Patient {str(id)}"}, ["name"])
 		return patient
 
