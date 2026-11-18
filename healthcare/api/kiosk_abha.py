@@ -6,8 +6,10 @@ create-only Kiosk role does not have, and that guard stays exactly as it is. The
   1. work only on a patient THIS kiosk session registered (a matched, already-registered patient is refused,
      because mobile + DOB is weak proof of who is standing at the screen),
   2. accept only OTP transactions this session started, so a foreign txn cannot be replayed,
-  3. run the unchanged M1 function as Administrator for that one call (common.elevated), and
-  4. answer with an allow-list: a txn id, a status, masked values. No token, profile, full ABHA number or
+  3. send a create-ABHA OTP only after this session recorded the patient's agreement to ABDM's terms
+     (record_consent here, checked again by the same rule as the desk), and
+  4. run the unchanged M1 function as Administrator for that one call (common.elevated), and
+  5. answer with an allow-list: a txn id, a status, masked values. No token, profile, full ABHA number or
      Aadhaar ever leaves the server through here, and M1's own error text (which can name other patients)
      is replaced by a generic message.
 
@@ -23,13 +25,62 @@ import frappe
 from frappe import _
 
 from healthcare.api import kiosk_common as common
-from healthcare.regional.india.abdm.api import enrol, profile
+from healthcare.regional.india.abdm.api import consent, enrol, profile, ui
 
 _OTP_RE = re.compile(r"^\d{6}$")
 _AADHAAR_RE = re.compile(r"^\d{12}$")
 _MOBILE_RE = re.compile(r"^\d{10}$")
 _ABHA_ADDRESS_RE = re.compile(r"^[A-Za-z0-9._]{3,64}@(abdm|sbx)$")
 _OTP_SYSTEMS = ("abdm", "aadhaar")
+
+
+# --------------------------------------------------------------------------------------------------
+# Agreement to ABDM's terms: shown and recorded before any create-ABHA OTP is sent
+# --------------------------------------------------------------------------------------------------
+
+
+@frappe.whitelist(methods=["POST"])
+@common.kiosk_endpoint
+def get_consent_text():
+	"""ABDM's own wording, exactly as record_consent stores it, so the screen shows what is recorded."""
+	common.throttle("abha_get_consent_text")
+	if not common.get_settings().enable_abha:
+		frappe.throw(_("ABHA is not available."), frappe.ValidationError)
+	text = consent.get_consent_text()
+	return {key: text.get(key) for key in ("title", "text", "version")}
+
+
+@frappe.whitelist(methods=["POST"])
+@common.kiosk_endpoint
+def record_consent(patient=None):
+	"""Record that this patient agreed to the terms. Sending an OTP to create an ABHA refuses until this is done."""
+	record = _run(
+		"abha_record_consent",
+		patient,
+		lambda: consent.record_consent(patient, consent_type="ABHA Creation", source="Kiosk"),
+	)
+	common.bind_consent(patient, record["consent_name"])
+	return {"recorded": True}
+
+
+def _send_after_consent(endpoint, patient, send, auth_method):
+	"""Send a create-ABHA OTP only on top of this session's recorded agreement, then link it to the transaction."""
+	# Read before common.elevated(), which swaps the session id this lookup is keyed on
+	consent_name = common.bound_consent(patient)
+
+	def checked_send():
+		ui._check_consent(patient, consent_name)
+		result = send()
+		if result.get("txnId"):
+			frappe.db.set_value(
+				"ABDM Consent",
+				consent_name,
+				{"txn_id": result["txnId"], "auth_method": auth_method},
+				update_modified=False,
+			)
+		return result
+
+	return _run(endpoint, patient, checked_send, otp_send=True)
 
 
 # --------------------------------------------------------------------------------------------------
@@ -41,8 +92,8 @@ _OTP_SYSTEMS = ("abdm", "aadhaar")
 @common.kiosk_endpoint
 def send_aadhaar_otp(patient=None, aadhaar=None):
 	aadhaar = _digits(aadhaar, _AADHAAR_RE, _("Please enter your 12 digit Aadhaar number."))
-	result = _run(
-		"abha_send_aadhaar_otp", patient, lambda: enrol.generate_aadhaar_otp(patient, aadhaar), otp_send=True
+	result = _send_after_consent(
+		"abha_send_aadhaar_otp", patient, lambda: enrol.generate_aadhaar_otp(patient, aadhaar), "Aadhaar OTP"
 	)
 	return {"txn_id": _bind_txn(result.get("txnId"), patient)}
 
@@ -104,8 +155,8 @@ def verify_enrol_mobile_otp(patient=None, txn_id=None, otp=None):
 @common.kiosk_endpoint
 def send_mobile_otp_create(patient=None, mobile=None):
 	mobile = _digits(mobile, _MOBILE_RE, _("Please enter your 10 digit mobile number."))
-	result = _run(
-		"abha_send_create_otp", patient, lambda: enrol.generate_mobile_otp(patient, mobile), otp_send=True
+	result = _send_after_consent(
+		"abha_send_create_otp", patient, lambda: enrol.generate_mobile_otp(patient, mobile), "Mobile OTP"
 	)
 	return {"txn_id": _bind_txn(result.get("txnId"), patient)}
 

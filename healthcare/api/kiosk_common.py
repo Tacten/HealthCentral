@@ -279,5 +279,23 @@ def assert_txn_bound(txn_id: str, patient: str):
 	_touch(key)
 
 
+def _consent_key(patient):
+	return f"{_session_prefix()}consent:{patient}"
+
+
+def bind_consent(patient: str, consent_name: str):
+	"""Remember the agreement this session recorded for this patient, so an OTP can only follow it."""
+	frappe.cache.set_value(_consent_key(patient), consent_name, expires_in_sec=_ttl())
+
+
+def bound_consent(patient: str) -> str:
+	"""The agreement this session recorded for this patient; none yet means the terms were not shown and accepted."""
+	name = frappe.cache.get_value(_consent_key(patient), expires=True)
+	if not name:
+		frappe.throw(_("Record the patient's agreement to the terms before requesting the OTP."), frappe.ValidationError)
+	_touch(_consent_key(patient))
+	return name
+
+
 def clear_session():
 	frappe.cache.delete_keys(_session_prefix())

@@ -29,6 +29,7 @@
 			searchBy: "mobile",
 			txn: null,
 			flow: null,
+			consent: null,
 			error: "",
 			notice: "",
 		};
@@ -808,6 +809,7 @@ function makeQRCode(text, size, errorCorrectLevel) {
 			result: result,
 			booked: booked,
 			abhaMethod: abhaMethod,
+			abhaConsent: abhaConsent,
 			abhaAadhaar: abhaAadhaar,
 			abhaOtp: abhaOtp,
 			abhaAddress: abhaAddress,
@@ -1190,13 +1192,13 @@ function makeQRCode(text, size, errorCorrectLevel) {
 			h("div", { class: "actions stack" }, [
 				button("Create ABHA with Aadhaar", function () {
 					S.flow = "aadhaar";
-					go("abhaAadhaar");
+					showConsent();
 				}),
 				button(
 					"Create ABHA with mobile number",
 					function () {
 						S.flow = "mobile";
-						go("abhaAadhaar");
+						showConsent();
 					},
 					"secondary",
 				),
@@ -1217,6 +1219,50 @@ function makeQRCode(text, size, errorCorrectLevel) {
 				),
 			]),
 		]);
+	}
+
+	// Creating an ABHA needs the patient's agreement to ABDM's terms first. The server refuses to send any
+	// create OTP until it has recorded it, so this screen cannot be skipped by going straight to the next one.
+	function showConsent() {
+		run(call(ABHA, "get_consent_text", {}), function (found) {
+			S.consent = found;
+			go("abhaConsent");
+		});
+	}
+
+	function abhaConsent() {
+		var terms = S.consent || {};
+		return h("div", { class: "screen" }, [
+			h("h1", {}, terms.title || "Terms and Conditions"),
+			h("p", { class: "lead" }, "Please read this before we continue."),
+			h("div", { class: "terms", tabindex: "0" }, terms.text || ""),
+			h("label", { class: "agree" }, [
+				h("input", { type: "checkbox", id: "abha_agree" }),
+				" I have read the above and I agree.",
+			]),
+			h("div", { class: "actions" }, [
+				button(
+					"Back",
+					function () {
+						go("abhaMethod");
+					},
+					"secondary",
+				),
+				button("Agree and continue", agreeToTerms),
+			]),
+		]);
+	}
+
+	function agreeToTerms() {
+		var box = document.getElementById("abha_agree");
+		if (!box || !box.checked) {
+			S.error = "Please tick the box to agree before continuing.";
+			render();
+			return;
+		}
+		run(call(ABHA, "record_consent", { patient: S.patient.uhid }), function () {
+			go("abhaAadhaar");
+		});
 	}
 
 	// First input of every flow: Aadhaar number, mobile number or ABHA address
