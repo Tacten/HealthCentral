@@ -32,6 +32,10 @@ from healthcare.setup import setup_healthcare
 @frappe.whitelist()
 def get_healthcare_services_to_invoice(patient, customer, company, link_customer=False):
 	link_customer = bool(cint(link_customer))
+	frappe.has_permission("Sales Invoice", "create", throw=True)
+	frappe.has_permission("Patient", "read", patient, throw=True)
+	if link_customer:
+		frappe.has_permission("Patient", "write", patient, throw=True)
 	patient = frappe.get_doc("Patient", patient)
 	if not customer:
 		customer = patient.customer
@@ -56,7 +60,8 @@ def get_healthcare_services_to_invoice(patient, customer, company, link_customer
 def validate_customer_created(patient, customer, link_customer):
 	message = ""
 	if link_customer and customer:
-		frappe.db.set_value("Patient", patient.name, "customer", customer)
+		patient.check_permission("write")
+		patient.db_set("customer", customer)
 		message = _("Customer {0} has been linked to Patient").format(customer)
 	elif not frappe.db.get_value("Patient", patient.name, "customer"):
 		message = _(

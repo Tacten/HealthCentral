@@ -9,7 +9,7 @@ from healthcare.healthcare.utils import get_healthcare_services_to_invoice
 
 
 class TestHealthcareServicesToInvoice(IntegrationTestCase):
-	def test_link_customer_uses_patient_name_for_set_value(self):
+	def test_link_customer_updates_patient_with_permission_checks(self):
 		patient = create_patient(id=9001, customer=None)
 		customer = "_Test Customer"
 		if not frappe.db.exists("Customer", customer):
