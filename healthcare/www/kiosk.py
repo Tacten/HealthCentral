@@ -21,14 +21,18 @@ from healthcare.kiosk_setup import KIOSK_ROLE
 no_cache = 1
 no_sitemap = 1
 
-_PREVIEW_ROLES = ("System Manager",)
+_PREVIEW_ROLES = ("System Manager", "Administrator")
 
 
 def get_context(context):
+	# Public kiosk: guests see the registration UI directly (no login redirect).
 	if frappe.session.user == "Guest":
-		# Send the guest to the login form and back here afterwards (temporary: a cached 301 would stick).
-		frappe.local.flags.redirect_location = f"/login?redirect-to={quote('/kiosk', safe='')}"
-		raise frappe.Redirect(302)
+		context.no_cache = 1
+		context.title = _("Patient Registration")
+		context.js_url = _asset_url("kiosk.js")
+		context.css_url = _asset_url("kiosk.css")
+		context.boot_json = _safe_json(_boot(preview=True))
+		return context
 
 	roles = set(frappe.get_roles(frappe.session.user))
 	if KIOSK_ROLE not in roles and not roles.intersection(_PREVIEW_ROLES):
