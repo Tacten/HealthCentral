@@ -94,7 +94,7 @@ def register_patient(
 	# Hashed: a Redis key name is visible to MONITOR and KEYS, and must not carry the patient's DOB and mobile
 	lock_name = frappe.cache.make_key(f"kiosk:register:{_digest(data['dob'], data['mobile'])}")
 	with _locked_and_committed(lock_name):
-		existing = _find_existing_patient(data["dob"], data["mobile"])
+		existing = _find_existing_patient(data)
 		if existing:
 			patient = existing
 			already_registered = True
@@ -480,15 +480,29 @@ def _mask_mobile(mobile):
 # --------------------------------------------------------------------------------------------------
 
 
-def _find_existing_patient(dob, mobile):
-	"""Same DOB and the same last ten digits of mobile. Runs whether or not Healthcare Settings'
-	duplicate check is on, so a double-tap or a returning patient never gets a second record."""
+def _find_existing_patient(data):
+	"""Same person: DOB, last ten digits of mobile, gender and name all agree.
+
+	Runs whether or not Healthcare Settings' duplicate check is on, so a double-tap or a returning patient never
+	gets a second record. DOB and mobile alone are not enough: twins (or any family sharing a parent's number)
+	have both in common, and must each get their own record and token. A name typed differently from the record
+	is treated as a different person; the desk can merge that, and the alternative is adopting someone else's.
+	"""
+	full_name = _name_key(" ".join(part for part in (data["first_name"], data["last_name"]) if part))
 	for row in frappe.get_all(
-		"Patient", filters={"dob": dob}, fields=["name", "patient_name", "sex", "dob", "mobile"]
+		"Patient",
+		filters={"dob": data["dob"], "sex": data["sex"]},
+		fields=["name", "patient_name", "sex", "dob", "mobile"],
+		order_by="creation asc",
 	):
-		if _last_ten_digits(row.mobile) == mobile:
+		if _last_ten_digits(row.mobile) == data["mobile"] and _name_key(row.patient_name) == full_name:
 			return row
 	return None
+
+
+def _name_key(value):
+	"""A name compared without case or spacing differences."""
+	return " ".join((value or "").casefold().split())
 
 
 def _last_ten_digits(value):
