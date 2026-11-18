@@ -48,7 +48,8 @@ export function OtpStep({ onNext, onBack, hasMobile }: { onNext: (mobileLinked: 
     const chosenMobile = hasMobile ? undefined : digitsOnly(mobile);
     const res = await completeEnrolment(startedPatient, known.txnId, code, chosenMobile);
     if (known.patient?.name !== startedPatient) return;
-    dispatch({ type: "learn", patch: { txnId: res.txnId ?? known.txnId, abhaNumber: res.abha_number, mobileLinked: res.mobile_linked } });
+    // Keep the number typed here so, if ABDM still did not link it, the mobile step reuses it instead of asking again.
+    dispatch({ type: "learn", patch: { txnId: res.txnId ?? known.txnId, abhaNumber: res.abha_number, mobileLinked: res.mobile_linked, ...(chosenMobile ? { communicationMobile: chosenMobile } : {}) } });
     dispatch({ type: "forget", keys: ["aadhaar"] });
     onNext(res.mobile_linked); // passed on directly: the store has not re-rendered yet
   }

@@ -197,7 +197,7 @@ describe("create wizard", () => {
       expect(server.last("send_mobile_otp")?.args).toEqual({ patient: "PAT-1", txn_id: "T2", mobile: "9876555555" });
     });
 
-    it("asks for a number only when the patient record has none", async () => {
+    it("asks for a number only when the patient record has none, and reuses it for the mobile OTP", async () => {
       const server = happy({ ...unlinked, get_context: () => ({ ...NO_ABHA, patient: { ...NO_ABHA.patient, has_mobile: false } }) });
       render(<App />);
       const u = await toOtp();
@@ -209,10 +209,14 @@ describe("create wizard", () => {
       await u.type(box("Mobile number"), "98765 55555");
       await u.click(screen.getByRole("textbox", { name: "Digit 1 of 6" }));
       await u.keyboard("123456");
-      await heading("Confirm mobile");
       expect(server.last("complete_enrolment")?.args).toEqual({ patient: "PAT-1", txn_id: "T1", otp: "123456", mobile: "9876555555" });
-      expect(screen.getByRole("textbox", { name: "Mobile number" })).toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: /number on the patient record/ })).toBeNull();
+      // ABDM still did not link it: the number just typed is reused for the mobile OTP, not asked for again.
+      await heading("Verify mobile OTP");
+      expect(screen.queryByRole("textbox", { name: "Mobile number" })).toBeNull();
+      expect(server.last("send_mobile_otp")?.args).toEqual({ patient: "PAT-1", txn_id: "T2", mobile: "9876555555" });
+      await u.keyboard("123456");
+      await heading("Choose ABHA address");
+      expect(server.last("verify_mobile_otp")?.args).toEqual({ patient: "PAT-1", txn_id: "T3", otp: "123456" });
     });
   });
 
