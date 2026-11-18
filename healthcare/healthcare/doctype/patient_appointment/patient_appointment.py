@@ -758,6 +758,12 @@ class PatientAppointment(Document):
 		if self.appointment_for != "Medical Camp":
 			return
 
+		# Only a booking, or a change to what was booked, is checked against the camp. Updating an appointment that
+		# already exists (cancelling it, checking it in) must still work after the camp is Completed or Cancelled.
+		booking_fields = ("appointment_for", "medical_camp", "appointment_date", "appointment_type")
+		if not self.is_new() and not any(self.has_value_changed(field) for field in booking_fields):
+			return
+
 		camp = frappe.db.get_value(
 			"Medical Camp",
 			self.medical_camp,
