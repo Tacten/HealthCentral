@@ -29,7 +29,7 @@ def get_context(context):
 	if frappe.session.user == "Guest":
 		context.no_cache = 1
 		context.title = _("Patient Registration")
-		context.js_url = _asset_url("kiosk_boot.js")
+		context.js_url = _asset_url("kiosk.js")
 		context.css_url = _asset_url("kiosk.css")
 		context.boot_json = _safe_json(_boot(preview=True))
 		return context
@@ -40,7 +40,7 @@ def get_context(context):
 
 	context.no_cache = 1
 	context.title = _("Patient Registration")
-	context.js_url = _asset_url("kiosk_boot.js")
+	context.js_url = _asset_url("kiosk.js")
 	context.css_url = _asset_url("kiosk.css")
 	context.boot_json = _safe_json(_boot(preview=KIOSK_ROLE not in roles))
 	return context
