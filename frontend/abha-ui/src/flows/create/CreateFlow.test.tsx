@@ -198,11 +198,19 @@ describe("create wizard", () => {
     });
 
     it("asks for a number only when the patient record has none", async () => {
-      happy({ ...unlinked, get_context: () => ({ ...NO_ABHA, patient: { ...NO_ABHA.patient, has_mobile: false } }) });
+      const server = happy({ ...unlinked, get_context: () => ({ ...NO_ABHA, patient: { ...NO_ABHA.patient, has_mobile: false } }) });
       render(<App />);
       const u = await toOtp();
+      // Enrolment needs a mobile, so the OTP screen asks for it and will not verify without one.
+      expect(screen.getByRole("textbox", { name: "Mobile number" })).toBeInTheDocument();
+      await u.keyboard("123456");
+      expect(await screen.findByRole("alert")).toBeInTheDocument();
+      expect(server.count("complete_enrolment")).toBe(0);
+      await u.type(box("Mobile number"), "98765 55555");
+      await u.click(screen.getByRole("textbox", { name: "Digit 1 of 6" }));
       await u.keyboard("123456");
       await heading("Confirm mobile");
+      expect(server.last("complete_enrolment")?.args).toEqual({ patient: "PAT-1", txn_id: "T1", otp: "123456", mobile: "9876555555" });
       expect(screen.getByRole("textbox", { name: "Mobile number" })).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /number on the patient record/ })).toBeNull();
     });
