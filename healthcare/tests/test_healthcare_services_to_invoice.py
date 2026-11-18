@@ -13,9 +13,9 @@ class TestHealthcareServicesToInvoice(IntegrationTestCase):
 		patient = create_patient(id=9001, customer=None)
 		customer = "_Test Customer"
 		if not frappe.db.exists("Customer", customer):
-			frappe.get_doc({"doctype": "Customer", "customer_name": customer, "customer_type": "Individual"}).insert(
-				ignore_permissions=True
-			)
+			frappe.get_doc(
+				{"doctype": "Customer", "customer_name": customer, "customer_type": "Individual"}
+			).insert(ignore_permissions=True)
 
 		frappe.db.set_value("Patient", patient, "customer", None)
 		get_healthcare_services_to_invoice(patient, customer, "_Test Company", link_customer=1)
