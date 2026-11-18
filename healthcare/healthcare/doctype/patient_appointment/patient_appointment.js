@@ -215,7 +215,9 @@ frappe.ui.form.on('Patient Appointment', {
 					"healthcare.healthcare.doctype.fee_validity.fee_validity.get_fee_validity",
 					{ "appointment_name": frm.doc.name, "date": frm.doc.appointment_date , "ignore_status": true })).message;
 
-				if (val && !fee_validity.length) {
+				// A free camp appointment has nothing to pay
+				const free_camp = frm.doc.appointment_for == "Medical Camp" && !frm.doc.paid_amount;
+				if (val && !fee_validity.length && !free_camp) {
 					frm.add_custom_button(__("Make Payment"), function () {
 						make_payment(frm, val);
 					});
@@ -476,6 +478,11 @@ frappe.ui.form.on('Patient Appointment', {
 					frm.toggle_display('billing_item', data.message ? 1 : 0);
 					frm.toggle_reqd('paid_amount', data.message ? 1 : 0);
 					frm.toggle_reqd('billing_item', data.message ? 1 : 0);
+				}
+				if (frm.doc.appointment_for == 'Medical Camp') {
+					// camps are mostly free: a zero amount and no billing item are allowed
+					frm.toggle_reqd('paid_amount', 0);
+					frm.toggle_reqd('billing_item', 0);
 				}
 			}
 		});
@@ -1528,6 +1535,9 @@ let calculate_age = function(birth) {
 };
 
 let make_payment = function (frm, automate_invoicing) {
+	if (frm.doc.appointment_for == "Medical Camp" && !frm.doc.paid_amount) {
+		return; // a free camp appointment is not invoiced
+	}
 	if (automate_invoicing) {
 		make_registration (frm, automate_invoicing);
 	}

@@ -1065,6 +1065,8 @@ def check_payment_reqd(patient):
 @frappe.whitelist()
 def invoice_appointment(appointment_name, discount_percentage=0, discount_amount=0):
 	appointment_doc = frappe.get_doc("Patient Appointment", appointment_name)
+	if is_free_camp_appointment(appointment_doc):
+		return  # nothing to invoice
 	settings = frappe.get_single("Healthcare Settings")
 
 	if settings.enable_free_follow_ups:
@@ -1081,6 +1083,11 @@ def invoice_appointment(appointment_name, discount_percentage=0, discount_amount
 	if settings.show_payment_popup and not appointment_doc.invoiced and not fee_validity:
 		create_sales_invoice(appointment_doc, discount_percentage, discount_amount)
 	update_fee_validity(appointment_doc)
+
+
+def is_free_camp_appointment(appointment_doc):
+	"""A Medical Camp appointment with no charge: it is booked and attended without an invoice."""
+	return appointment_doc.get("appointment_for") == "Medical Camp" and not flt(appointment_doc.paid_amount)
 
 
 def create_sales_invoice(appointment_doc, discount_percentage=0, discount_amount=0):
@@ -1164,7 +1171,14 @@ def get_appointment_item(appointment_doc, item):
 	details = get_appointment_billing_item_and_rate(appointment_doc)
 	charge = appointment_doc.paid_amount or details.get("practitioner_charge")
 	item.item_code = details.get("service_item")
-	item.description = _("Consulting Charges: {0}").format(appointment_doc.practitioner)
+	if appointment_doc.get("appointment_for") == "Medical Camp" and appointment_doc.medical_camp:
+		camp_name = (
+			frappe.db.get_value("Medical Camp", appointment_doc.medical_camp, "camp_name")
+			or appointment_doc.medical_camp
+		)
+		item.description = _("Medical Camp Charges: {0}").format(camp_name)
+	else:
+		item.description = _("Consulting Charges: {0}").format(appointment_doc.practitioner)
 	item.income_account = get_income_account(appointment_doc.practitioner, appointment_doc.company)
 	item.cost_center = frappe.get_cached_value("Company", appointment_doc.company, "cost_center")
 	item.rate = charge
