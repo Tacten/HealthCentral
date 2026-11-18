@@ -312,6 +312,7 @@ def decide(name: str, decision: str, note: str = "") -> dict:
 	front, back = (_photo_b64(doc, f) for f in ("front_photo", "back_photo"))
 	if not (front and back and details):
 		frappe.db.set_value(DOCTYPE, name, {"status": "Failed", "result_message": "The held documents are missing. Collect them again."})
+		_discard_held(name)
 		frappe.db.commit()
 		frappe.throw(frappe._("The held documents are missing. Collect them again."), frappe.ValidationError)
 	check_txn_not_consumed(txn_id)
