@@ -1087,7 +1087,9 @@ function makeQRCode(text, size, errorCorrectLevel) {
 		var actions = [button("Print my token", printSlip)];
 		if (BOOT.enable_appointment)
 			actions.push(button("Book my appointment", bookAppointment, "secondary"));
-		if (BOOT.enable_abha && !p.abha_linked)
+		// Only for a patient registered just now: a returning patient's ABHA is handled at the desk, because the
+		// kiosk cannot tell that the person typing a matching mobile number is that patient.
+		if (BOOT.enable_abha && !p.abha_linked && !p.already_registered)
 			actions.push(
 				button(
 					"Create or link my ABHA",

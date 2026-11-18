@@ -213,7 +213,7 @@ def select_patient(ref=None):
 def _returning_result(patient, token, camp):
 	"""What the screen shows for a patient who was already registered: limited details and today's token.
 
-	The UHID is needed by the ABHA steps. Never DOB, address, email or the full mobile.
+	The UHID is needed by the print and booking steps. Never DOB, address, email or the full mobile.
 	"""
 	return {
 		"already_registered": True,
