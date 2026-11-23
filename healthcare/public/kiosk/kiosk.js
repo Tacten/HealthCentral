@@ -158,6 +158,7 @@
 
 	function reset() {
 		clearTimeout(idleTimer);
+		stopQrScanner();
 		var hadPatient = !!S.patient;
 		S = fresh();
 		busy = false;
@@ -194,6 +195,7 @@
 			abhaOtp: abhaOtp,
 			abhaAddress: abhaAddress,
 			abhaDone: abhaDone,
+			scan: scan,
 		};
 		var content = unavailable() || screens[S.screen]();
 		var card = h("section", { class: "card" }, [
@@ -386,6 +388,10 @@
 		var draft = S.draft || {};
 		return h("form", { class: "screen", novalidate: true, onsubmit: submitForm }, [
 			h("h1", {}, "Your details"),
+			S.notice ? h("p", { class: "notice" }, S.notice) : null,
+			h("div", { class: "actions" }, [
+				button("Scan Aadhaar QR", scanAadhaarQr, "secondary"),
+			]),
 			field("first_name", "First name", {
 				value: draft.first_name || "",
 				required: true,
@@ -463,6 +469,155 @@
 			go("result");
 		});
 	}
+
+// ----------------------------------------------------------------------------------------------
+// Aadhaar QR Code Scanner
+// ----------------------------------------------------------------------------------------------
+
+var qrStream = null;
+var JSQR_URL = "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js";
+
+// jsQR is loaded the first time a scan starts, so the page itself needs no extra script tag.
+function loadJsQR() {
+	if (window.jsQR) return Promise.resolve();
+	return new Promise(function (resolve, reject) {
+		var tag = document.createElement("script");
+		tag.src = JSQR_URL;
+		tag.onload = resolve;
+		tag.onerror = function () { reject(new Error("QR reader could not be loaded")); };
+		document.head.appendChild(tag);
+	});
+}
+
+// The scanning screen: live camera preview with a viewfinder frame and a way out.
+function scan() {
+	var video = h("video", { id: "qr-video", class: "scan-video", playsinline: true, muted: true, autoplay: true });
+	video.muted = true;
+	if (qrStream) {
+		video.srcObject = qrStream;
+		video.play().catch(function () {});
+	}
+	return h("div", { class: "screen" }, [
+		h("h1", {}, "Scan your Aadhaar QR"),
+		h("p", { class: "lead" }, "Hold the QR code on your Aadhaar card inside the frame."),
+		h("div", { class: "scan-frame" }, [
+			video,
+			h("div", { class: "scan-guide", "aria-hidden": "true" }),
+			qrStream ? null : h("p", { class: "scan-status" }, "Starting camera..."),
+		]),
+		h("p", { class: "hint" }, "Your card is read on this screen only. Nothing is saved until you submit the form."),
+		h("div", { class: "actions" }, [button("Cancel", cancelScan, "secondary")]),
+	]);
+}
+
+function rememberDraft() {
+	if (!document.getElementById("first_name")) return;
+	var checked = document.querySelector("input[name=sex]:checked");
+	S.draft = {
+		first_name: value("first_name"),
+		last_name: value("last_name"),
+		sex: checked ? checked.value : "",
+		dob: value("dob"),
+		mobile: value("mobile"),
+		email: value("email"),
+	};
+}
+
+function scanAadhaarQr() {
+	if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+		showNotice("Camera access is not supported on this device.");
+		return;
+	}
+	rememberDraft();
+	go("scan");
+
+	Promise.all([
+		navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }),
+		loadJsQR(),
+	]).then(function (results) {
+		if (S.screen !== "scan") {
+			// the patient cancelled or the kiosk timed out while the camera was starting
+			results[0].getTracks().forEach(function (t) { t.stop(); });
+			return;
+		}
+		qrStream = results[0];
+		render();
+		scanQrFrame();
+	}).catch(function (err) {
+		stopQrScanner();
+		go("form");
+		S.error =
+			err && err.name === "NotAllowedError"
+				? "Camera permission was denied. Allow the camera or enter your details manually."
+				: "Could not start the camera or QR reader. Please enter your details manually.";
+		render();
+	});
+}
+
+function scanQrFrame() {
+	if (S.screen !== "scan" || !qrStream) return;
+	var video = document.getElementById("qr-video");
+	if (video && video.readyState >= 2 && video.videoWidth) {
+		try {
+			var canvas = document.createElement("canvas");
+			canvas.width = video.videoWidth;
+			canvas.height = video.videoHeight;
+			var ctx = canvas.getContext("2d", { willReadFrequently: true });
+			ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+			var image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+			var code = window.jsQR(image.data, canvas.width, canvas.height);
+			if (code && code.data) {
+				stopQrScanner();
+				processAadhaarQr(code.data);
+				return;
+			}
+		} catch (err) {
+			/* keep scanning */
+		}
+	}
+	requestAnimationFrame(scanQrFrame);
+}
+
+function processAadhaarQr(qrData) {
+	go("form");
+	run(call(KIOSK, "parse_aadhaar_qr", { qr_data: qrData }), function (result) {
+		var old = S.draft || {};
+		S.draft = {
+			first_name: result.first_name || "",
+			last_name: result.last_name || "",
+			sex: result.sex || "",
+			dob: result.dob || "",
+			mobile: old.mobile || "",
+			email: old.email || "",
+			address: result.address || "",
+			pincode: result.pincode || "",
+		};
+		S.qrMaskedAadhaar = result.masked_aadhaar;
+		S.notice = "Aadhaar QR scanned. Please review and complete the form.";
+		render();
+	});
+}
+
+function cancelScan() {
+	stopQrScanner();
+	go("form");
+}
+
+function stopQrScanner() {
+	if (qrStream) {
+		qrStream.getTracks().forEach(function (track) { track.stop(); });
+		qrStream = null;
+	}
+}
+
+function showNotice(message) {
+	S.notice = message;
+	render();
+	setTimeout(function () {
+		S.notice = "";
+		render();
+	}, 5000);
+}
 
 	function result() {
 		var p = S.patient;

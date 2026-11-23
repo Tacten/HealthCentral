@@ -162,21 +162,17 @@ describe("create wizard", () => {
     expect(within(rail).queryByText("(not needed)")).toBeNull();
   });
 
-  describe("when ABDM did not link the mobile by itself", () => {
-    const unlinked = { complete_enrolment: () => ({ abha_number: "91-1111-2222-3333", mobile_linked: false, txnId: "T2" }) };
+  describe("when ABDM linked the mobile by itself", () => {
+    const linked = { complete_enrolment: () => ({ abha_number: "91-1111-2222-3333", mobile_linked: true, is_new: true, txnId: "T2" }) };
 
     it("activates with an OTP to the number on the patient record, without typing it", async () => {
-      const server = happy(unlinked);
+      const server = happy(linked);
       render(<App />);
       const u = await toOtp();
       await u.keyboard("123456");
-      await heading("Confirm mobile");
-      await u.click(screen.getByRole("button", { name: "Send OTP to the number on the patient record" }));
-      await heading("Verify mobile OTP");
-      expect(server.last("send_mobile_otp")?.args).toEqual({ patient: "PAT-1", txn_id: "T2" });
-      await u.keyboard("123456");
       await heading("Choose ABHA address");
-      expect(server.last("verify_mobile_otp")?.args).toEqual({ patient: "PAT-1", txn_id: "T3", otp: "123456" });
+      expect(server.last("complete_enrolment")?.args).toEqual({ patient: "PAT-1", txn_id: "T1", otp: "123456" });
+      expect(server.count("send_mobile_otp")).toBe(0);
     });
 
     it("checks a different mobile before any call", async () => {
@@ -197,14 +193,19 @@ describe("create wizard", () => {
       expect(server.last("send_mobile_otp")?.args).toEqual({ patient: "PAT-1", txn_id: "T2", mobile: "9876555555" });
     });
 
-    it("asks for a number only when the patient record has none", async () => {
+    it("asks for a number only when the patient record has none, and requires it before OTP verification", async () => {
       happy({ ...unlinked, get_context: () => ({ ...NO_ABHA, patient: { ...NO_ABHA.patient, has_mobile: false } }) });
       render(<App />);
       const u = await toOtp();
       await u.keyboard("123456");
-      await heading("Confirm mobile");
+      await heading("Verify Aadhaar OTP");
+      // When has_mobile=false, the OTP step now collects the mobile number
       expect(screen.getByRole("textbox", { name: "Mobile number" })).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /number on the patient record/ })).toBeNull();
+      // Enter mobile number and complete OTP
+      await u.type(screen.getByRole("textbox", { name: "Mobile number" }), "98765 43210");
+      await u.keyboard("123456");
+      await heading("Confirm mobile");
     });
   });
 

@@ -6,11 +6,11 @@
     <meta name="robots" content="noindex" />
     <link rel="icon" href="/favicon.png" />
     <title>{{ title }}</title>
-    <link rel="stylesheet" href="{{ css_url }}" />
+    {% if css_url %}<link rel="stylesheet" href="{{ css_url }}" />{% endif %}
   </head>
   <body>
-    <main id="kiosk-root" aria-live="polite"></main>
+    <div id="kiosk-root"></div>
     <script type="application/json" id="kiosk-boot">{{ boot_json | safe }}</script>
-    <script src="{{ js_url }}" defer></script>
+    <script src="{{ js_url }}"></script>
   </body>
 </html>
