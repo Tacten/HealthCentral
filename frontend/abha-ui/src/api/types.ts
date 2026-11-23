@@ -30,6 +30,8 @@ export interface EnrolResult {
   status?: string;
   /** True when ABDM linked the mobile by itself (it matched the Aadhaar-linked one): no mobile OTP is needed. */
   mobile_linked: boolean;
+  /** True when a new ABHA was created; false when an existing ABHA was linked to the patient. */
+  is_new: boolean;
   txnId?: string;
 }
 

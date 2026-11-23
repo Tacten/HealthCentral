@@ -8,13 +8,22 @@ export function DlOtpStep({ onNext, onBack }: { onNext: () => void; onBack: () =
 
   async function send() {
     if (!patient || !known.consent) throw new Error("The agreement is missing. Go back and record it.");
-    const res = await requestDocumentOtp(patient, known.consent.id, known.communicationMobile);
+    // Snapshot the patient/consent that started this OTP request. If staff switch patients
+    // while the request is in flight, the old step must not merge its result onto the new
+    // patient's state.
+    const startedPatient = patient;
+    const startedConsentId = known.consent.id;
+    const res = await requestDocumentOtp(startedPatient, startedConsentId, known.communicationMobile);
+    if (known.patient?.name !== startedPatient || known.consent?.id !== startedConsentId) return;
     dispatch({ type: "learn", patch: { txnId: res.txnId } });
   }
 
   async function verify(code: string) {
     if (!patient || !known.txnId) throw new Error("The OTP request has expired. Go back and send it again.");
-    const res = await verifyDocumentOtp(patient, known.txnId, code);
+    // Snapshot the patient that started verification; reject the result if the patient changed.
+    const startedPatient = patient;
+    const res = await verifyDocumentOtp(startedPatient, known.txnId, code);
+    if (known.patient?.name !== startedPatient) return;
     dispatch({ type: "learn", patch: { txnId: res.txnId ?? known.txnId } });
     dispatch({ type: "forget", keys: ["communicationMobile"] });
     onNext();

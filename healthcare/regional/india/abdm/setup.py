@@ -14,7 +14,6 @@ def setup_abdm_settings_defaults():
 		"environment": "sandbox",
 		"abha_base_url": "https://abhasbx.abdm.gov.in/abha/api",
 		"phr_base_url": "https://phrsbx.abdm.gov.in",
-		"wrapper_base_url": "http://localhost:8082",
 		"fhir_base_url": "https://nrces.in/ndhm/fhir/R4",
 		"abdm_gateway_ip_allowlist": "[]",
 	}

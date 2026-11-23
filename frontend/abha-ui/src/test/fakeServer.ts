@@ -14,7 +14,10 @@ export interface Call {
   args: Record<string, unknown>;
 }
 
-const short = (m: string) => m.split(".").pop() ?? m;
+const short = (m: string) => {
+  const parts = m.split(".");
+  return parts[parts.length - 1] ?? m;
+};
 
 /** Stands in for the Frappe site: each `/api/method/<name>` is answered by the handler registered under its last segment. */
 export function fakeServer(handlers: Record<string, Handler>) {

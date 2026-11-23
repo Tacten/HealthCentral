@@ -101,10 +101,10 @@ export function CreateFlow() {
       body = <AadhaarStep capture={route === "biometric"} onNext={() => go(route === "biometric" ? "capture" : "otp")} onConsentLost={restartConsent} />;
       break;
     case "otp":
-      body = <OtpStep hasMobile={ctx.patient.has_mobile} onNext={(linked) => go(linked ? "address" : "mobile")} onBack={backToAadhaar} />;
+      body = <OtpStep hasMobile={ctx.patient.has_mobile} onNext={(result) => go(result.mobileLinked ? "address" : "mobile")} onBack={backToAadhaar} />;
       break;
     case "capture":
-      body = <BioCaptureStep onNext={(linked) => go(linked ? "address" : "mobile")} onBack={backToAadhaar} />;
+      body = <BioCaptureStep onNext={({ mobileLinked }) => go(mobileLinked ? "address" : "mobile")} onBack={backToAadhaar} />;
       break;
     case "mobile":
       body = <MobileStep hasMobile={ctx.patient.has_mobile} onNext={() => go("address")} />;
@@ -128,12 +128,16 @@ export function CreateFlow() {
       body = <DoneStep onAnother={() => { dispatch({ type: "patient", patient: undefined }); go("consent"); }} />;
   }
 
+  // Enrolment is complete after these steps (the ABHA is already linked/created).
+// After enrolment, SkipAbha would incorrectly say "no ABHA is linked" — hide it.
+const enrolmentCompleteSteps = new Set(["address", "dl-details", "dl-result", "done"]);
+
   return (
     <div className="layout-wizard">
       <StepRail steps={createSteps(route)} currentId={step} known={known} label="Create ABHA steps" visited={visited} />
       <section className="card panel" aria-labelledby="step-title">
         {body}
-        {step !== "done" && step !== "dl-result" && <SkipAbha onSkip={() => { dispatch({ type: "forgetSensitive" }); dispatch({ type: "forget", keys: ["aadhaar", "consent"] }); setSkipped(true); }} />}
+        {!enrolmentCompleteSteps.has(step) && step !== "dl-result" && <SkipAbha onSkip={() => { dispatch({ type: "forgetSensitive" }); dispatch({ type: "forget", keys: ["aadhaar", "consent"] }); setSkipped(true); }} />}
       </section>
     </div>
   );

@@ -17,6 +17,7 @@ export type FactKey =
   | "txnId"
   | "updateKind"
   | "mobileLinked"
+  | "isNew"
   | "createRoute"
   | "licenceDetails"
   | "profile";
@@ -40,6 +41,7 @@ export interface Known {
   txnId?: string;
   updateKind?: "mobile" | "email" | "re-kyc" | "photo";
   mobileLinked?: boolean;
+  isNew?: boolean;
   createRoute?: CreateRoute;
   licenceDetails?: LicenceDetails;
   profile?: ProfileSummary;

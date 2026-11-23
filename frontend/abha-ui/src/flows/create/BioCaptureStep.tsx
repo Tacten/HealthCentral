@@ -10,7 +10,7 @@ import { ErrorNote } from "../../ui/ErrorNote";
  * Scan a fingerprint on the registered device and create the ABHA. The PID block lives in this function only: it is
  * passed straight to the server and then dropped. A failed scan shows why and the person scans again.
  */
-export function BioCaptureStep({ onNext, onBack }: { onNext: (mobileLinked: boolean) => void; onBack: () => void }) {
+export function BioCaptureStep({ onNext, onBack }: { onNext: (result: { mobileLinked: boolean; isNew: boolean }) => void; onBack: () => void }) {
   const rd = useRd();
   const { known, dispatch } = useKnown();
   const [busy, setBusy] = useState<"" | "scan" | "send">("");
@@ -19,14 +19,21 @@ export function BioCaptureStep({ onNext, onBack }: { onNext: (mobileLinked: bool
   async function scan() {
     if (!known.patient || !known.aadhaar || !known.consent) return setError("The Aadhaar number or the agreement is missing. Go back and enter it.");
     setError("");
+    // Snapshot the patient/consent that started this scan. If staff switch patients
+    // while the scan and ABDM call are in flight, the old step must not merge its
+    // result onto the new patient's state.
+    const startedPatient = known.patient;
+    const startedConsentId = known.consent.id;
     try {
       setBusy("scan");
       const pid = await rd.capture();
       setBusy("send");
-      const res = await enrolByBiometric(known.patient.name, known.aadhaar, pid, known.consent.id);
-      dispatch({ type: "learn", patch: { txnId: res.txnId, abhaNumber: res.abha_number, mobileLinked: res.mobile_linked } });
+      const res = await enrolByBiometric(startedPatient.name, known.aadhaar, pid, startedConsentId);
+      if (known.patient?.name !== startedPatient.name || known.consent?.id !== startedConsentId) return;
+      const enrolRes = res as { mobile_linked: boolean; is_new: boolean; abha_number: string; txnId?: string };
+      dispatch({ type: "learn", patch: { txnId: res.txnId, abhaNumber: res.abha_number, mobileLinked: res.mobile_linked, isNew: enrolRes.is_new } });
       dispatch({ type: "forget", keys: ["aadhaar"] });
-      onNext(res.mobile_linked);
+      onNext({ mobileLinked: enrolRes.mobile_linked, isNew: enrolRes.is_new });
     } catch (e) {
       setError(e instanceof RdServiceError || e instanceof ApiError || e instanceof Error ? e.message : "The scan did not work. Try again.");
     } finally {

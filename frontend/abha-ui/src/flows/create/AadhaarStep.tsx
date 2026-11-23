@@ -23,13 +23,25 @@ export function AadhaarStep({ onNext, onConsentLost, capture = false }: { onNext
     setError("");
     setNeedsConsent(false);
     const aadhaar = digitsOnly(value);
+
+    // Snapshot the patient and consent that started this request. If staff switch
+    // patients while the OTP request is in flight, the old step must not merge its
+    // result onto the new patient's state.
+    const startedPatient = known.patient;
+    const startedConsentId = known.consent.id;
+
     if (capture) {
       // The fingerprint route sends the Aadhaar number with the scan, so nothing is requested here.
+      if (known.patient?.name !== startedPatient.name) return;
       dispatch({ type: "learn", patch: { aadhaar } });
       return onNext();
     }
     try {
-      const res = await requestEnrolmentOtp(known.patient.name, aadhaar, known.consent.id);
+      const res = await requestEnrolmentOtp(startedPatient.name, aadhaar, startedConsentId);
+      // Reject the update if the patient/consent changed while we were waiting.
+      if (known.patient?.name !== startedPatient.name || known.consent?.id !== startedConsentId) {
+        return;
+      }
       dispatch({ type: "learn", patch: { aadhaar, txnId: res.txnId } });
       onNext();
     } catch (e) {

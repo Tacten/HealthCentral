@@ -76,6 +76,20 @@ def get_x_token(patient: str) -> str | None:
 	return reg.get_password("x_token")
 
 
+def get_linking_token(patient: str) -> str | None:
+	"""Retrieve the HIP linking token for a patient, checking expiry."""
+	from frappe.utils import get_datetime
+	reg_name = frappe.db.get_value("ABDM Token Registry", {"patient": patient}, "name")
+	if not reg_name:
+		return None
+	reg = frappe.get_doc("ABDM Token Registry", reg_name)
+	if not reg.linking_token:
+		return None
+	if reg.linking_token_expiry and get_datetime(reg.linking_token_expiry) < get_datetime(now_datetime()):
+		return None  # Expired
+	return reg.get_password("linking_token")
+
+
 def clear_all_tokens(patient: str):
 	"""Clear all tokens for a patient — called on logout (M1-T51)."""
 	reg_name = frappe.db.get_value("ABDM Token Registry", {"patient": patient}, "name")

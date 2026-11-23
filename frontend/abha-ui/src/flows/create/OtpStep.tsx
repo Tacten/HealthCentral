@@ -4,6 +4,7 @@ import { useKnown } from "../../domain/StoreContext";
 import { Field } from "../../ui/Field";
 import { OtpPanel } from "../../ui/OtpPanel";
 import { digitsOnly, mobileError } from "../../ui/validate";
+import type { EnrolResult } from "../../api/types";
 
 /**
  * Verify the Aadhaar OTP and create the ABHA. When the Aadhaar number was already given elsewhere (a lookup that found
@@ -12,7 +13,7 @@ import { digitsOnly, mobileError } from "../../ui/validate";
  * Enrolment requires a mobile number (ABDM's documented contract). If the Patient has no usable mobile on record, this
  * step collects one before verifying the OTP so the call can succeed; otherwise the saved number is reused silently.
  */
-export function OtpStep({ onNext, onBack, hasMobile }: { onNext: (mobileLinked: boolean) => void; onBack: () => void; hasMobile: boolean }) {
+export function OtpStep({ onNext, onBack, hasMobile }: { onNext: (result: { mobileLinked: boolean; isNew: boolean }) => void; onBack: () => void; hasMobile: boolean }) {
   const { known, dispatch } = useKnown();
   const patient = known.patient?.name;
   const needsSend = !known.txnId;
@@ -49,9 +50,10 @@ export function OtpStep({ onNext, onBack, hasMobile }: { onNext: (mobileLinked: 
     const res = await completeEnrolment(startedPatient, known.txnId, code, chosenMobile);
     if (known.patient?.name !== startedPatient) return;
     // Keep the number typed here so, if ABDM still did not link it, the mobile step reuses it instead of asking again.
-    dispatch({ type: "learn", patch: { txnId: res.txnId ?? known.txnId, abhaNumber: res.abha_number, mobileLinked: res.mobile_linked, ...(chosenMobile ? { communicationMobile: chosenMobile } : {}) } });
+    const enrolRes = res as EnrolResult;
+    dispatch({ type: "learn", patch: { txnId: res.txnId ?? known.txnId, abhaNumber: res.abha_number, mobileLinked: res.mobile_linked, isNew: enrolRes.is_new, ...(chosenMobile ? { communicationMobile: chosenMobile } : {}) } });
     dispatch({ type: "forget", keys: ["aadhaar"] });
-    onNext(res.mobile_linked); // passed on directly: the store has not re-rendered yet
+    onNext({ mobileLinked: res.mobile_linked, isNew: enrolRes.is_new });
   }
 
   return (

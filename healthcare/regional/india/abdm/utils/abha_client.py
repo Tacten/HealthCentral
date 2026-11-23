@@ -74,6 +74,28 @@ class AbhaClient:
 		url = (getattr(self.settings, "phr_base_url", None) or "").rstrip("/")
 		return url or self.base_url
 
+	@property
+	def hip_id(self) -> str:
+		"""HIP ID from ABDM Settings — required for M2 calls as X-HIP-ID header."""
+		hip_id = getattr(self.settings, "hip_id", None)
+		if not hip_id:
+			frappe.throw(
+				frappe._("HIP ID not configured in ABDM Settings. Required for M2 operations."),
+				frappe.ValidationError,
+			)
+		return hip_id
+
+	@property
+	def callback_base_url(self) -> str:
+		"""Callback Base URL from ABDM Settings — required for M2 bridge registration."""
+		cb_url = getattr(self.settings, "callback_base_url", None)
+		if not cb_url:
+			frappe.throw(
+				frappe._("Callback Base URL not configured in ABDM Settings. Required for M2 operations."),
+				frappe.ValidationError,
+			)
+		return cb_url.rstrip("/")
+
 	# -----------------------------------------------------------------------
 	# Core request method
 	# -----------------------------------------------------------------------
@@ -157,6 +179,209 @@ class AbhaClient:
 		# (the V0.5 endpoint was at /gateway/v0.5/sessions — different path prefix)
 		return f"{host}/api/hiecm/gateway/v3/sessions"
 
+	def _get_gateway_base_url(self) -> str:
+		"""
+		Get the gateway base URL (without the sessions path).
+		Used for M2 calls like Update Bridge API.
+		"""
+		from urllib.parse import urlparse
+
+		raw = (
+			getattr(self.settings, "auth_base_url", None)
+			or "https://dev.abdm.gov.in/gateway"
+		).strip().rstrip("/")
+
+		parsed = urlparse(raw)
+		host = f"{parsed.scheme}://{parsed.netloc}"  # e.g. https://dev.abdm.gov.in
+		return f"{host}/api/hiecm/gateway/v3"
+
+	def update_bridge_url(self) -> dict:
+		"""
+		M2: Update Bridge URL (PATCH /api/hiecm/gateway/v3/bridge/url)
+
+		Registers the callback URL for this client ID so ABDM can send
+		callbacks for link token, HIP linking, discovery, consent notifications, etc.
+
+		Must be called once after configuring callback_base_url in ABDM Settings.
+		Returns the bridge service details on success.
+		"""
+		base = self._get_gateway_base_url()
+		url = f"{base}/bridge/url"
+		payload = {"url": self.callback_base_url}
+
+		headers = {
+			"Content-Type": "application/json",
+			"Accept": "application/json",
+			"Authorization": f"Bearer {self._get_gateway_token()}",
+			"X-CM-ID": "sbx" if "sand" in (getattr(self.settings, "environment", "") or "").lower() else "abdm",
+			"REQUEST-ID": str(uuid.uuid4()),
+			"TIMESTAMP": _abdm_iso_timestamp(),
+		}
+
+		abdm_log("info", f"Update Bridge URL → PATCH {url} | callback={self.callback_base_url}")
+
+		try:
+			resp = requests.patch(url, json=payload, headers=headers, timeout=(5, 10))
+			abdm_log("info", f"Update Bridge URL → {resp.status_code}")
+			resp.raise_for_status()
+			return resp.json()
+		except requests.HTTPError as e:
+			self._handle_http_error(e)
+		except requests.ConnectionError:
+			frappe.throw(
+				frappe._("Cannot connect to ABDM gateway at {0}. Is it reachable?").format(base),
+				frappe.ValidationError,
+			)
+		except requests.Timeout:
+			frappe.throw(
+				frappe._("ABDM gateway request timed out. Please try again."),
+				frappe.ValidationError,
+			)
+
+	def call_m2(
+		self,
+		endpoint: str,
+		payload: dict | None = None,
+		method: str = "POST",
+		patient: str | None = None,
+		use_x_token: bool = False,
+		use_link_token: bool = False,
+		max_retries: int | None = None,
+		extra_headers: dict | None = None,
+	) -> dict:
+		"""
+		Make an authenticated M2 (HIE-CM) API call.
+
+		:param endpoint: Path relative to gateway base, e.g. "/hip/v3/link/carecontext"
+		:param payload: Request body (will be sent as JSON)
+		:param method: HTTP method (POST/GET/PATCH)
+		:param patient: Frappe Patient docname — required for X-token / X-LINK-TOKEN auth
+		:param use_x_token: Include X-token from Token Registry in headers
+		:param use_link_token: Include X-LINK-TOKEN from Token Registry
+		:param max_retries: Override MAX_RETRIES for this call
+		:param extra_headers: Added to the standard headers
+		"""
+		if patient:
+			self._assert_patient_permission(patient)
+
+		base = self._get_gateway_base_url()
+		url = f"{base}{endpoint}"
+		abdm_log("info", f"call_m2 → {method} {url} | use_x_token={use_x_token} | use_link_token={use_link_token}")
+
+		def _header_factory():
+			headers = self._build_m2_headers(
+				patient,
+				use_x_token=use_x_token,
+				use_link_token=use_link_token,
+			)
+			if extra_headers:
+				headers.update(extra_headers)
+			return headers
+
+		return self._request_with_retry(method, url, _header_factory, payload, max_retries=max_retries)
+
+	# -----------------------------------------------------------------------
+	# M2: Link Token
+	# -----------------------------------------------------------------------
+
+	def generate_link_token(self, patient: str, abha_number: str, abha_address: str, name: str, gender: str, year_of_birth: int) -> dict:
+		"""
+		M2: Generate link token to link health records (POST /api/hiecm/v3/token/generate-token)
+
+		This is the first step in HIP-initiated linking. The returned link token
+		is used in subsequent linking calls.
+
+		:param patient: Frappe Patient docname
+		:param abha_number: 14-digit ABHA number (with dashes: 91-XXXX-XXXX-XXXX)
+		:param abha_address: ABHA address (e.g. user@abdm)
+		:param name: Patient full name
+		:param gender: M/F/O
+		:param year_of_birth: 4-digit year
+		"""
+		payload = {
+			"abhaNumber": abha_number,
+			"abhaAddress": abha_address,
+			"name": name,
+			"gender": gender.upper(),
+			"yearOfBirth": year_of_birth,
+		}
+		return self.call_m2("/v3/token/generate-token", payload=payload, patient=patient)
+
+	# -----------------------------------------------------------------------
+	# M2: HIP Initiated Linking
+	# -----------------------------------------------------------------------
+
+	def link_care_contexts(self, patient: str, care_contexts: list) -> dict:
+		"""
+		M2: Perform HIP initiated linking (POST /api/hiecm/hip/v3/link/carecontext)
+
+		The X-LINK-TOKEN is automatically retrieved from the patient's Token Registry.
+
+		:param patient: Frappe Patient docname
+		:param care_contexts: List of care context objects with referenceNumber, display, hiType, count
+		"""
+		payload = {
+			"patient": care_contexts,
+		}
+		return self.call_m2("/hip/v3/link/carecontext", payload=payload, patient=patient, use_link_token=True)
+
+	def notify_care_context_update(self, patient: str, care_context_ref: str, hi_types: list, abha_address: str) -> dict:
+		"""
+		M2: Notify CM about update on linked care context (POST /api/hiecm/hip/v3/link/context/notify)
+
+		:param patient: Frappe Patient docname
+		:param care_context_ref: Care context reference number
+		:param hi_types: List of HI types (e.g. ["DiagnosticReport"])
+		:param abha_address: Patient's ABHA address
+		"""
+		payload = {
+			"notification": {
+				"patient": {"id": abha_address},
+				"careContext": {
+					"patientReference": abha_address,
+					"careContextReference": care_context_ref,
+				},
+				"hiTypes": hi_types,
+				"date": _abdm_iso_timestamp(),
+				"hip": {"id": self.hip_id},
+			},
+		}
+		return self.call_m2("/hip/v3/link/context/notify", payload=payload, patient=patient)
+
+	def send_link_sms_notification(self, patient: str, phone_no: str, hip_name: str) -> dict:
+		"""
+		M2: Send SMS notification to patient that a care context is linked (POST /api/hiecm/hip/v3/link/patient/links/sms/notify2)
+
+		:param patient: Frappe Patient docname
+		:param phone_no: Masked phone number (e.g. "986543****")
+		:param hip_name: HIP facility name
+		"""
+		payload = {
+			"notification": {
+				"phoneNo": phone_no,
+				"hip": {"id": self.hip_id, "name": hip_name},
+			},
+		}
+		return self.call_m2("/hip/v3/link/patient/links/sms/notify2", payload=payload, patient=patient)
+
+	# -----------------------------------------------------------------------
+	# M2: User Initiated Linking (callbacks - HIP implements these endpoints)
+	# -----------------------------------------------------------------------
+
+	# These are INBOUND callbacks that your bridge must implement:
+	# 1. POST /api/v3/hip/patient/care-context/discover
+	# 2. POST /api/v3/hip/link/care-context/init
+	# 3. POST /api/v3/hip/link/care-context/confirm
+
+	# -----------------------------------------------------------------------
+	# M2: Consent & Data Flow (callbacks - HIP implements these endpoints)
+	# -----------------------------------------------------------------------
+
+	# These are INBOUND callbacks that your bridge must implement:
+	# 1. POST /api/v3/consent/request/hip/notify
+	# 2. POST /api/v3/hip/health-information/request
+	# 3. POST /health-information/transfer (outbound to HIU's dataPushUrl)
+
 	def _get_gateway_token(self) -> str:
 		"""
 		Fetch or return cached system-level gateway access token.
@@ -210,6 +435,10 @@ class AbhaClient:
 		use_t_token: bool = False,
 		use_txn_id: bool = False,
 	) -> dict:
+		"""
+		Build headers for M1 (ABHA V3) calls.
+		For M2 calls, use _build_m2_headers() instead which includes X-HIP-ID.
+		"""
 		gateway_token = self._get_gateway_token()
 		env = getattr(self.settings, "environment", None) or "sandbox"
 		cm_id = "sbx" if "sand" in env.lower() else "abdm"
@@ -245,6 +474,59 @@ class AbhaClient:
 				# Enrollment completion endpoints (enrol/suggestion, enrol/abha-address) use
 				# Transaction_Id: {UUID} per ABDM V3 spec — no "Bearer" prefix, UUID value.
 				headers["Transaction_Id"] = reg.get_password("t_token")
+		return headers
+
+	def _build_m2_headers(
+		self,
+		patient: str | None = None,
+		use_x_token: bool = False,
+		use_link_token: bool = False,
+	) -> dict:
+		"""
+		Build headers for M2 (HIE-CM) calls.
+		Includes X-HIP-ID header required for all M2 outbound calls.
+
+		:param patient: Frappe Patient docname — required for X-token auth
+		:param use_x_token: Include X-token from Token Registry in headers
+		:param use_link_token: Include X-LINK-TOKEN from Token Registry
+		"""
+		gateway_token = self._get_gateway_token()
+		env = getattr(self.settings, "environment", None) or "sandbox"
+		cm_id = "sbx" if "sand" in env.lower() else "abdm"
+
+		headers = {
+			"Content-Type": "application/json",
+			"Accept": "application/json",
+			"Authorization": f"Bearer {gateway_token}",
+			"X-CM-ID": cm_id,
+			"X-HIP-ID": self.hip_id,
+			"REQUEST-ID": str(uuid.uuid4()),
+			"TIMESTAMP": _abdm_iso_timestamp(),
+		}
+		if patient:
+			from healthcare.healthcare.doctype.abdm_token_registry.abdm_token_registry import (
+				get_or_create_registry, get_x_token, get_linking_token,
+			)
+			if use_x_token:
+				live_x_token = get_x_token(patient)
+				if live_x_token:
+					headers["X-token"] = f"Bearer {live_x_token}"
+				else:
+					abdm_log("warning", f"X-token missing or expired for patient={patient} — aborting request")
+					frappe.throw(
+						frappe._("Your ABHA session has expired. Please use ABDM → Verify ABHA to refresh your session, then try again."),
+						frappe.ValidationError,
+					)
+			if use_link_token:
+				live_link_token = get_linking_token(patient)
+				if live_link_token:
+					headers["X-LINK-TOKEN"] = live_link_token
+				else:
+					abdm_log("warning", f"Linking token missing or expired for patient={patient} — aborting request")
+					frappe.throw(
+						frappe._("No valid linking token found. Please complete HIP linking first."),
+						frappe.ValidationError,
+					)
 		return headers
 
 	@staticmethod
