@@ -239,7 +239,7 @@ def resolve_candidate(ref) -> str:
 def bind_patient(patient: str, created: bool, selected: bool = False):
 	key = _patient_key(patient)
 	entry = frappe.cache.get_value(key, expires=True) or {}
-	# Both flags are sticky: a patient this session made, or picked from its own mobile search, stays eligible
+	# Both flags are sticky. `created` alone opens the ABHA steps; `selected` only the token, print and booking.
 	frappe.cache.set_value(
 		key,
 		{
@@ -253,12 +253,14 @@ def bind_patient(patient: str, created: bool, selected: bool = False):
 def assert_bound(patient: str, require_created: bool = False):
 	"""Refuse a patient this kiosk session did not register or pick from its own search.
 
-	require_created is the gate for ABHA steps: the patient was registered here, or chosen from this session's
-	mobile search. ABDM itself still proves ownership of the ABHA by OTP before anything is linked.
+	require_created is the gate for ABHA steps, and it accepts only a patient this session registered. A returning
+	patient who was merely found or picked (by a mobile search, or by a DOB and mobile that match) is not enough:
+	anyone can do that with another person's details, and the ABDM OTP proves ownership of the ABHA being linked,
+	not of the clinic record it would be written onto.
 	"""
 	key = _patient_key(patient)
 	entry = frappe.cache.get_value(key, expires=True)
-	if not entry or (require_created and not (entry["created"] or entry.get("selected"))):
+	if not entry or (require_created and not entry.get("created")):
 		frappe.throw(_("This action is not available."), frappe.PermissionError)
 	_touch(key)
 
@@ -275,6 +277,24 @@ def assert_txn_bound(txn_id: str, patient: str):
 	if not key or frappe.cache.get_value(key, expires=True) != patient:
 		frappe.throw(_("This action is not available."), frappe.PermissionError)
 	_touch(key)
+
+
+def _consent_key(patient):
+	return f"{_session_prefix()}consent:{patient}"
+
+
+def bind_consent(patient: str, consent_name: str):
+	"""Remember the agreement this session recorded for this patient, so an OTP can only follow it."""
+	frappe.cache.set_value(_consent_key(patient), consent_name, expires_in_sec=_ttl())
+
+
+def bound_consent(patient: str) -> str:
+	"""The agreement this session recorded for this patient; none yet means the terms were not shown and accepted."""
+	name = frappe.cache.get_value(_consent_key(patient), expires=True)
+	if not name:
+		frappe.throw(_("Record the patient's agreement to the terms before requesting the OTP."), frappe.ValidationError)
+	_touch(_consent_key(patient))
+	return name
 
 
 def clear_session():

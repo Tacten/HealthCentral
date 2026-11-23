@@ -13,10 +13,12 @@ type Phase = "choose" | "enter" | "otp";
  */
 export function MobileStep({ hasMobile, onNext }: { hasMobile: boolean; onNext: () => void }) {
   const { known, dispatch } = useKnown();
-  const [phase, setPhase] = useState<Phase>(hasMobile ? "choose" : "enter");
+  // A number already typed earlier in this session (on the Aadhaar OTP step) is reused, not asked for again.
+  const typedBefore = known.communicationMobile ?? "";
+  const [phase, setPhase] = useState<Phase>(typedBefore ? "otp" : hasMobile ? "choose" : "enter");
   const [value, setValue] = useState("");
   const [touched, setTouched] = useState(false);
-  const [chosen, setChosen] = useState(""); // "" means: the number on the patient record
+  const [chosen, setChosen] = useState(typedBefore); // "" means: the number on the patient record
   const patient = known.patient?.name;
 
   const problem = mobileError(value);

@@ -693,15 +693,15 @@ class AbhaClient:
 				else:
 					mobile_val = str(error_body.get("mobile", "")).lower()
 					if "invalid" in mobile_val:
-							# ABDM's enrol/byAadhaar spec: a 400 names the refused field. An Aadhaar that
-							# already has an ABHA is NOT refused; it returns 200 with isNew=false. So this
-							# branch means the mobile field itself was rejected. The raw body is in the
-							# Error Log entry written above.
-							msg = (
-								"ABDM rejected the mobile number sent with this Aadhaar OTP (Invalid Mobile Number). "
-								"Check it is the 10-digit mobile for ABHA communication and try again. "
-								"If it still fails, see the ABDM API Error Log entry for this request."
-							)
+						# ABDM's enrol/byAadhaar spec: a 400 names the refused field. An Aadhaar that
+						# already has an ABHA is NOT refused; it returns 200 with isNew=false. So this
+						# branch means the mobile field itself was rejected. The raw body is in the
+						# Error Log entry written above.
+						msg = (
+							"ABDM rejected the mobile number sent with this Aadhaar OTP (Invalid Mobile Number). "
+							"Check it is the 10-digit mobile for ABHA communication and try again. "
+							"If it still fails, see the ABDM API Error Log entry for this request."
+						)
 			# Write to Error Log (visible in Frappe UI at /app/error-log) so admins can diagnose
 			frappe.log_error(
 				title=f"ABDM API Error HTTP {status}",

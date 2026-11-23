@@ -62,6 +62,7 @@ export function OtpPanel({ heading, lede, label, verify, resend, send, back, chi
   }
 
   async function again() {
+    setBusy(true);
     setError("");
     setNote("");
     try {
@@ -71,6 +72,8 @@ export function OtpPanel({ heading, lede, label, verify, resend, send, back, chi
       setNote("A new OTP has been sent.");
     } catch (e) {
       setError(messageOf(e, "Could not send the OTP again."));
+    } finally {
+      setBusy(false);
     }
   }
 

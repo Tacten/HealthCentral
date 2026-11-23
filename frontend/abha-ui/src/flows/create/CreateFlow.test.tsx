@@ -164,6 +164,7 @@ describe("create wizard", () => {
 
   describe("when ABDM linked the mobile by itself", () => {
     const linked = { complete_enrolment: () => ({ abha_number: "91-1111-2222-3333", mobile_linked: true, is_new: true, txnId: "T2" }) };
+    const unlinked = { complete_enrolment: () => ({ abha_number: "91-1111-2222-3333", mobile_linked: false, is_new: true, txnId: "T2" }) };
 
     it("activates with an OTP to the number on the patient record, without typing it", async () => {
       const server = happy(linked);
@@ -193,19 +194,26 @@ describe("create wizard", () => {
       expect(server.last("send_mobile_otp")?.args).toEqual({ patient: "PAT-1", txn_id: "T2", mobile: "9876555555" });
     });
 
-    it("asks for a number only when the patient record has none, and requires it before OTP verification", async () => {
-      happy({ ...unlinked, get_context: () => ({ ...NO_ABHA, patient: { ...NO_ABHA.patient, has_mobile: false } }) });
+    it("asks for a number only when the patient record has none, and reuses it for the mobile OTP", async () => {
+      const server = happy({ ...unlinked, get_context: () => ({ ...NO_ABHA, patient: { ...NO_ABHA.patient, has_mobile: false } }) });
       render(<App />);
       const u = await toOtp();
-      await u.keyboard("123456");
-      await heading("Verify Aadhaar OTP");
-      // When has_mobile=false, the OTP step now collects the mobile number
+      // Enrolment needs a mobile, so the OTP screen asks for it and will not verify without one.
       expect(screen.getByRole("textbox", { name: "Mobile number" })).toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: /number on the patient record/ })).toBeNull();
-      // Enter mobile number and complete OTP
-      await u.type(screen.getByRole("textbox", { name: "Mobile number" }), "98765 43210");
       await u.keyboard("123456");
-      await heading("Confirm mobile");
+      expect(await screen.findByRole("alert")).toBeInTheDocument();
+      expect(server.count("complete_enrolment")).toBe(0);
+      await u.type(box("Mobile number"), "98765 55555");
+      await u.click(screen.getByRole("textbox", { name: "Digit 1 of 6" }));
+      await u.keyboard("123456");
+      expect(server.last("complete_enrolment")?.args).toEqual({ patient: "PAT-1", txn_id: "T1", otp: "123456", mobile: "9876555555" });
+      // ABDM still did not link it: the number just typed is reused for the mobile OTP, not asked for again.
+      await heading("Verify mobile OTP");
+      expect(screen.queryByRole("textbox", { name: "Mobile number" })).toBeNull();
+      expect(server.last("send_mobile_otp")?.args).toEqual({ patient: "PAT-1", txn_id: "T2", mobile: "9876555555" });
+      await u.keyboard("123456");
+      await heading("Choose ABHA address");
+      expect(server.last("verify_mobile_otp")?.args).toEqual({ patient: "PAT-1", txn_id: "T3", otp: "123456" });
     });
   });
 

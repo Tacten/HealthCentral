@@ -19,6 +19,7 @@
 	var S = fresh(); // everything entered or received for the current patient
 	var busy = false;
 	var idleTimer = null;
+	var lastPing = 0;
 
 	function fresh() {
 		return {
@@ -29,6 +30,7 @@
 			searchBy: "mobile",
 			txn: null,
 			flow: null,
+			consent: null,
 			error: "",
 			notice: "",
 		};
@@ -154,6 +156,16 @@
 		clearTimeout(idleTimer);
 		if (S.screen === "welcome") return;
 		idleTimer = setTimeout(reset, BOOT.idle_timeout * 1000);
+		keepSessionAlive();
+	}
+
+	// Reading the terms takes longer than the server keeps a registration without a request, so while the patient
+	// is actively touching or scrolling that screen, tell the server. Stopping touching stops this too.
+	function keepSessionAlive() {
+		var now = Date.now();
+		if (S.screen !== "abhaConsent" || !S.patient || now - lastPing < 15000) return;
+		lastPing = now;
+		call(ABHA, "keep_alive", { patient: S.patient.uhid }).catch(function () {});
 	}
 
 	function reset() {
@@ -167,7 +179,7 @@
 			call(KIOSK, "end_session").catch(function () {});
 	}
 
-	["pointerdown", "keydown", "input", "touchstart"].forEach(function (name) {
+	["pointerdown", "keydown", "input", "touchstart", "scroll"].forEach(function (name) {
 		document.addEventListener(name, touch, true);
 	});
 
@@ -191,6 +203,7 @@
 			result: result,
 			booked: booked,
 			abhaMethod: abhaMethod,
+			abhaConsent: abhaConsent,
 			abhaAadhaar: abhaAadhaar,
 			abhaOtp: abhaOtp,
 			abhaAddress: abhaAddress,
@@ -470,16 +483,18 @@
 		});
 	}
 
+
 // ----------------------------------------------------------------------------------------------
 // Aadhaar QR Code Scanner
 // ----------------------------------------------------------------------------------------------
 
 var qrStream = null;
-var JSQR_URL = "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js";
+// Same-origin only: the kiosk page never loads script or calls out to another host.
+var JSQR_URL = "/assets/healthcare/kiosk/jsQR.min.js";
 
-// jsQR is loaded the first time a scan starts, so the page itself needs no extra script tag.
-function loadJsQR() {
-	if (window.jsQR) return Promise.resolve();
+// Use the browser's own QR reader when it has one; otherwise load the bundled jsQR the first time a scan starts.
+function loadReader() {
+	if (window.BarcodeDetector || window.jsQR) return Promise.resolve();
 	return new Promise(function (resolve, reject) {
 		var tag = document.createElement("script");
 		tag.src = JSQR_URL;
@@ -533,7 +548,7 @@ function scanAadhaarQr() {
 
 	Promise.all([
 		navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }),
-		loadJsQR(),
+		loadReader(),
 	]).then(function (results) {
 		if (S.screen !== "scan") {
 			// the patient cancelled or the kiosk timed out while the camera was starting
@@ -554,28 +569,41 @@ function scanAadhaarQr() {
 	});
 }
 
+var detector = null;
+
+function readFrame(video) {
+	if (window.BarcodeDetector) {
+		detector = detector || new window.BarcodeDetector({ formats: ["qr_code"] });
+		return detector.detect(video).then(function (codes) {
+			return codes.length ? codes[0].rawValue : null;
+		});
+	}
+	var canvas = document.createElement("canvas");
+	canvas.width = video.videoWidth;
+	canvas.height = video.videoHeight;
+	var ctx = canvas.getContext("2d", { willReadFrequently: true });
+	ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+	var image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+	var code = window.jsQR(image.data, canvas.width, canvas.height);
+	return Promise.resolve(code && code.data ? code.data : null);
+}
+
 function scanQrFrame() {
 	if (S.screen !== "scan" || !qrStream) return;
 	var video = document.getElementById("qr-video");
-	if (video && video.readyState >= 2 && video.videoWidth) {
-		try {
-			var canvas = document.createElement("canvas");
-			canvas.width = video.videoWidth;
-			canvas.height = video.videoHeight;
-			var ctx = canvas.getContext("2d", { willReadFrequently: true });
-			ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-			var image = ctx.getImageData(0, 0, canvas.width, canvas.height);
-			var code = window.jsQR(image.data, canvas.width, canvas.height);
-			if (code && code.data) {
+	var next = function () { requestAnimationFrame(scanQrFrame); };
+	if (!video || video.readyState < 2 || !video.videoWidth) return next();
+	readFrame(video)
+		.then(function (data) {
+			if (S.screen !== "scan") return;
+			if (data) {
 				stopQrScanner();
-				processAadhaarQr(code.data);
-				return;
+				processAadhaarQr(data);
+			} else {
+				next();
 			}
-		} catch (err) {
-			/* keep scanning */
-		}
-	}
-	requestAnimationFrame(scanQrFrame);
+		})
+		.catch(next);
 }
 
 function processAadhaarQr(qrData) {
@@ -624,7 +652,9 @@ function showNotice(message) {
 		var actions = [button("Print my token", printSlip)];
 		if (BOOT.enable_appointment)
 			actions.push(button("Book my appointment", bookAppointment, "secondary"));
-		if (BOOT.enable_abha && !p.abha_linked)
+		// Only for a patient registered just now: a returning patient's ABHA is handled at the desk, because the
+		// kiosk cannot tell that the person typing a matching mobile number is that patient.
+		if (BOOT.enable_abha && !p.abha_linked && !p.already_registered)
 			actions.push(
 				button(
 					"Create or link my ABHA",
@@ -715,7 +745,7 @@ function showNotice(message) {
 	}
 
 	// ----------------------------------------------------------------------------------------------
-	// ABHA: create by Aadhaar OTP, create by mobile OTP, or link an ABHA the patient already has
+	// ABHA: create by Aadhaar OTP, or link an ABHA the patient already has
 	// ----------------------------------------------------------------------------------------------
 
 	function abhaMethod() {
@@ -725,16 +755,8 @@ function showNotice(message) {
 			h("div", { class: "actions stack" }, [
 				button("Create ABHA with Aadhaar", function () {
 					S.flow = "aadhaar";
-					go("abhaAadhaar");
+					showConsent();
 				}),
-				button(
-					"Create ABHA with mobile number",
-					function () {
-						S.flow = "mobile";
-						go("abhaAadhaar");
-					},
-					"secondary",
-				),
 				button(
 					"I already have an ABHA",
 					function () {
@@ -754,16 +776,56 @@ function showNotice(message) {
 		]);
 	}
 
-	// First input of every flow: Aadhaar number, mobile number or ABHA address
+	// Creating an ABHA needs the patient's agreement to ABDM's terms first. The server refuses to send any
+	// create OTP until it has recorded it, so this screen cannot be skipped by going straight to the next one.
+	function showConsent() {
+		run(call(ABHA, "get_consent_text", { patient: S.patient.uhid }), function (found) {
+			S.consent = found;
+			go("abhaConsent");
+		});
+	}
+
+	function abhaConsent() {
+		var terms = S.consent || {};
+		return h("div", { class: "screen" }, [
+			h("h1", {}, terms.title || "Terms and Conditions"),
+			h("p", { class: "lead" }, "Please read this before we continue."),
+			h("div", { class: "terms", tabindex: "0" }, terms.text || ""),
+			h("label", { class: "agree" }, [
+				h("input", { type: "checkbox", id: "abha_agree" }),
+				" I have read the above and I agree.",
+			]),
+			h("div", { class: "actions" }, [
+				button(
+					"Back",
+					function () {
+						go("abhaMethod");
+					},
+					"secondary",
+				),
+				button("Agree and continue", agreeToTerms),
+			]),
+		]);
+	}
+
+	function agreeToTerms() {
+		var box = document.getElementById("abha_agree");
+		if (!box || !box.checked) {
+			S.error = "Please tick the box to agree before continuing.";
+			render();
+			return;
+		}
+		run(call(ABHA, "record_consent", { patient: S.patient.uhid }), function () {
+			go("abhaAadhaar");
+		});
+	}
+
+	// First input of every flow: Aadhaar number or ABHA address
 	function abhaAadhaar() {
 		var cfg = {
 			aadhaar: [
 				"Aadhaar number",
 				{ inputmode: "numeric", maxlength: 14, placeholder: "12 digit number" },
-			],
-			mobile: [
-				"Mobile number",
-				{ type: "tel", inputmode: "numeric", value: S.mobile },
 			],
 			link: ["ABHA address", { placeholder: "name@abdm" }],
 		}[S.flow];
@@ -799,13 +861,6 @@ function showNotice(message) {
 		var request = {
 			aadhaar: function () {
 				return call(ABHA, "send_aadhaar_otp", { patient: p, aadhaar: input });
-			},
-			mobile: function () {
-				S.mobile = input;
-				return call(ABHA, "send_mobile_otp_create", {
-					patient: p,
-					mobile: input,
-				});
 			},
 			link: function () {
 				return call(ABHA, "send_link_otp", { patient: p, abha_address: input });
@@ -874,19 +929,6 @@ function showNotice(message) {
 					otp: otp,
 				}),
 				loadSuggestions,
-			);
-		}
-		if (S.flow === "mobile") {
-			return run(
-				call(ABHA, "verify_mobile_otp_create", {
-					patient: p,
-					txn_id: t,
-					otp: otp,
-				}),
-				function (verified) {
-					S.txn = verified.txn_id;
-					loadSuggestions();
-				},
 			);
 		}
 		S.mobile = value("abha_mobile") || S.mobile;
