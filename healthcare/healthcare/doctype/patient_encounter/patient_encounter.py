@@ -40,15 +40,30 @@ class PatientEncounter(Document):
 			self.status = "Ordered"
 
 	def validate_insurance_policy(self):
-		doc_before = self.get_doc_before_save()
-		if doc_before and doc_before.patient != self.patient:
-			self.insurance_policy = None
-			self.insurance_coverage = None
-			self.coverage_status = None
-			return
-
 		if not self.patient:
 			return
+
+		doc_before = self.get_doc_before_save()
+		patient_changed = bool(doc_before and doc_before.patient != self.patient)
+
+		if self.insurance_policy:
+			policy_patient = frappe.db.get_value(
+				"Patient Insurance Policy", self.insurance_policy, "patient"
+			)
+			if policy_patient and policy_patient != self.patient:
+				self.insurance_policy = None
+				self.insurance_coverage = None
+				self.coverage_status = None
+			elif patient_changed and self.insurance_coverage:
+				coverage_patient = frappe.db.get_value(
+					"Patient Insurance Coverage", self.insurance_coverage, "patient"
+				)
+				if coverage_patient and coverage_patient != self.patient:
+					self.insurance_coverage = None
+					self.coverage_status = None
+		elif patient_changed:
+			self.insurance_coverage = None
+			self.coverage_status = None
 
 		if not self.insurance_policy:
 			return
