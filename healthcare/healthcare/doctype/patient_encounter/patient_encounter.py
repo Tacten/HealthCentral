@@ -46,24 +46,33 @@ class PatientEncounter(Document):
 		doc_before = self.get_doc_before_save()
 		patient_changed = bool(doc_before and doc_before.patient != self.patient)
 
-		if self.insurance_policy:
-			policy_patient = frappe.db.get_value(
-				"Patient Insurance Policy", self.insurance_policy, "patient"
-			)
-			if policy_patient and policy_patient != self.patient:
-				self.insurance_policy = None
-				self.insurance_coverage = None
-				self.coverage_status = None
-			elif patient_changed and self.insurance_coverage:
-				coverage_patient = frappe.db.get_value(
-					"Patient Insurance Coverage", self.insurance_coverage, "patient"
+		if patient_changed:
+			if self.insurance_policy:
+				policy_patient = frappe.db.get_value(
+					"Patient Insurance Policy", self.insurance_policy, "patient"
 				)
-				if coverage_patient and coverage_patient != self.patient:
+				if (
+					policy_patient
+					and policy_patient != self.patient
+					and doc_before.insurance_policy == self.insurance_policy
+				):
+					self.insurance_policy = None
 					self.insurance_coverage = None
 					self.coverage_status = None
-		elif patient_changed:
-			self.insurance_coverage = None
-			self.coverage_status = None
+				elif self.insurance_coverage:
+					coverage_patient = frappe.db.get_value(
+						"Patient Insurance Coverage", self.insurance_coverage, "patient"
+					)
+					if (
+						coverage_patient
+						and coverage_patient != self.patient
+						and doc_before.insurance_coverage == self.insurance_coverage
+					):
+						self.insurance_coverage = None
+						self.coverage_status = None
+			else:
+				self.insurance_coverage = None
+				self.coverage_status = None
 
 		if not self.insurance_policy:
 			return
