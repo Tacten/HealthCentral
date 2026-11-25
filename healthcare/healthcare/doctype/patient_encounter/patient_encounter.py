@@ -28,6 +28,7 @@ from healthcare.healthcare.utils import get_medical_codes
 class PatientEncounter(Document):
 	def validate(self):
 		self.set_title()
+		self.validate_insurance_policy()
 		self.validate_medications()
 		self.validate_therapies()
 		self.validate_observations()
@@ -37,6 +38,45 @@ class PatientEncounter(Document):
 			self.make_service_request()
 			self.make_medication_request()
 			self.status = "Ordered"
+
+	def validate_insurance_policy(self):
+		doc_before = self.get_doc_before_save()
+		if doc_before and doc_before.patient != self.patient:
+			self.insurance_policy = None
+			self.insurance_coverage = None
+			self.coverage_status = None
+			return
+
+		if not self.patient:
+			return
+
+		if not self.insurance_policy:
+			return
+
+		policy_patient = frappe.db.get_value(
+			"Patient Insurance Policy", self.insurance_policy, "patient"
+		)
+		if policy_patient and policy_patient != self.patient:
+			frappe.throw(
+				_("Insurance Policy {0} does not belong to the selected patient.").format(
+					frappe.bold(self.insurance_policy)
+				),
+				title=_("Invalid Insurance Policy"),
+			)
+
+		if not self.insurance_coverage:
+			return
+
+		coverage_patient = frappe.db.get_value(
+			"Patient Insurance Coverage", self.insurance_coverage, "patient"
+		)
+		if coverage_patient and coverage_patient != self.patient:
+			frappe.throw(
+				_("Insurance Coverage {0} does not belong to the selected patient.").format(
+					frappe.bold(self.insurance_coverage)
+				),
+				title=_("Invalid Insurance Coverage"),
+			)
 
 	def onload(self):
 		self.set_onload("has_diagnostic_report", bool(get_encounter_diagnostic_report(self.name)))

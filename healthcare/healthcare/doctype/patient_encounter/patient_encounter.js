@@ -39,6 +39,19 @@ frappe.ui.form.on("Patient Encounter", {
 	},
 
 	patient: function (frm) {
+		if (
+			!frm._skip_insurance_clear &&
+			frm._encounter_patient !== undefined &&
+			frm._encounter_patient !== frm.doc.patient
+		) {
+			frm.set_value({
+				insurance_policy: "",
+				insurance_coverage: "",
+				coverage_status: "",
+			});
+		}
+		frm._encounter_patient = frm.doc.patient;
+
 		// Original functionality
 		frm.events.set_patient_info(frm);
 
@@ -124,6 +137,8 @@ frappe.ui.form.on("Patient Encounter", {
 	},
 
 	refresh: function (frm) {
+		frm._encounter_patient = frm.doc.patient;
+
 		refresh_field("drug_prescription");
 		refresh_field("lab_test_prescription");
 		// The report mode is locked once a Diagnostic Report exists
@@ -414,7 +429,11 @@ frappe.ui.form.on("Patient Encounter", {
 						insurance_policy: data.message.insurance_policy,
 						insurance_coverage: data.message.insurance_coverage,
 					};
-					frm.set_value(values);
+					frm._skip_insurance_clear = true;
+					frm.set_value(values).then(() => {
+						frm._encounter_patient = frm.doc.patient;
+						frm._skip_insurance_clear = false;
+					});
 					frm.set_df_property("patient", "read_only", 1);
 				},
 			});

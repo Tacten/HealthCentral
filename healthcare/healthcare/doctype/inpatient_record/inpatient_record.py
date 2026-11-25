@@ -392,6 +392,12 @@ def create_inpatient_record(admission_order):
 		insurance_policy = frappe.db.get_value(
 			"Patient Appointment", encounter.appointment, "insurance_policy"
 		)
+	if insurance_policy:
+		policy_patient = frappe.db.get_value(
+			"Patient Insurance Policy", insurance_policy, "patient"
+		)
+		if policy_patient != admission_order["patient"]:
+			insurance_policy = None
 	inpatient_record.insurance_policy = insurance_policy
 	inpatient_record.status = "Admission Scheduled"
 	inpatient_record.save(ignore_permissions=True)
