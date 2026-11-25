@@ -101,6 +101,33 @@ class TestPatientEncounter(IntegrationTestCase):
 		self.assertFalse(encounter.insurance_policy)
 		self.assertFalse(encounter.insurance_coverage)
 
+	def test_patient_change_keeps_replacement_insurance_policy(self):
+		from healthcare.healthcare.doctype.patient_insurance_policy.test_patient_insurance_policy import (
+			get_new_insurance_policy,
+		)
+
+		policy_male = get_new_insurance_policy(self.patient_male.name)
+		policy_male.submit()
+		policy_female = get_new_insurance_policy(self.patient_female.name)
+		policy_female.submit()
+
+		encounter = frappe.get_doc(
+			{
+				"doctype": "Patient Encounter",
+				"patient": self.patient_male.name,
+				"practitioner": self.practitioner.name,
+				"appointment_type": create_appointment_type().name,
+				"insurance_policy": policy_male.name,
+			}
+		)
+		encounter.insert()
+
+		encounter = frappe.get_doc("Patient Encounter", encounter.name)
+		encounter.patient = self.patient_female.name
+		encounter.insurance_policy = policy_female.name
+		encounter.save()
+		self.assertEqual(encounter.insurance_policy, policy_female.name)
+
 	def test_insurance_policy_must_belong_to_patient(self):
 		from healthcare.healthcare.doctype.patient_insurance_policy.test_patient_insurance_policy import (
 			get_new_insurance_policy,
