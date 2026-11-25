@@ -28,6 +28,7 @@ from healthcare.healthcare.utils import get_medical_codes
 class PatientEncounter(Document):
 	def validate(self):
 		self.set_title()
+		self.validate_insurance_policy()
 		self.validate_medications()
 		self.validate_therapies()
 		self.validate_observations()
@@ -37,6 +38,69 @@ class PatientEncounter(Document):
 			self.make_service_request()
 			self.make_medication_request()
 			self.status = "Ordered"
+
+	def validate_insurance_policy(self):
+		if not self.patient:
+			return
+
+		doc_before = self.get_doc_before_save()
+		patient_changed = bool(doc_before and doc_before.patient != self.patient)
+
+		if patient_changed:
+			if self.insurance_policy:
+				policy_patient = frappe.db.get_value(
+					"Patient Insurance Policy", self.insurance_policy, "patient"
+				)
+				if (
+					policy_patient
+					and policy_patient != self.patient
+					and doc_before.insurance_policy == self.insurance_policy
+				):
+					self.insurance_policy = None
+					self.insurance_coverage = None
+					self.coverage_status = None
+				elif self.insurance_coverage:
+					coverage_patient = frappe.db.get_value(
+						"Patient Insurance Coverage", self.insurance_coverage, "patient"
+					)
+					if (
+						coverage_patient
+						and coverage_patient != self.patient
+						and doc_before.insurance_coverage == self.insurance_coverage
+					):
+						self.insurance_coverage = None
+						self.coverage_status = None
+			else:
+				self.insurance_coverage = None
+				self.coverage_status = None
+
+		if not self.insurance_policy:
+			return
+
+		policy_patient = frappe.db.get_value(
+			"Patient Insurance Policy", self.insurance_policy, "patient"
+		)
+		if policy_patient and policy_patient != self.patient:
+			frappe.throw(
+				_("Insurance Policy {0} does not belong to the selected patient.").format(
+					frappe.bold(self.insurance_policy)
+				),
+				title=_("Invalid Insurance Policy"),
+			)
+
+		if not self.insurance_coverage:
+			return
+
+		coverage_patient = frappe.db.get_value(
+			"Patient Insurance Coverage", self.insurance_coverage, "patient"
+		)
+		if coverage_patient and coverage_patient != self.patient:
+			frappe.throw(
+				_("Insurance Coverage {0} does not belong to the selected patient.").format(
+					frappe.bold(self.insurance_coverage)
+				),
+				title=_("Invalid Insurance Coverage"),
+			)
 
 	def onload(self):
 		self.set_onload("has_diagnostic_report", bool(get_encounter_diagnostic_report(self.name)))
@@ -343,6 +407,7 @@ class PatientEncounter(Document):
 		else:
 			order.update(
 				{
+					"insurance_policy": self.get("insurance_policy"),
 					"template_dt": template_doc.get("doctype"),
 					"template_dn": template_doc.get("name"),
 					# "patient_care_type": line_item.patient_care_type

@@ -1510,6 +1510,9 @@ def make_encounter(source_name, target_doc=None):
 					["patient_sex", "patient_sex"],
 					["invoiced", "invoiced"],
 					["company", "company"],
+					["appointment_type", "appointment_type"],
+					["insurance_policy", "insurance_policy"],
+					["insurance_coverage", "insurance_coverage"],
 				],
 				"field_no_map": ["practitioner", "naming_series"],
 			}
