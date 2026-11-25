@@ -387,7 +387,12 @@ def create_inpatient_record(admission_order):
 		inpatient_record.therapy_plan = encounter.therapy_plan
 		set_ip_child_records(inpatient_record, "therapies", encounter.therapies)
 
-	inpatient_record.insurance_policy = encounter.insurance_policy
+	insurance_policy = encounter.get("insurance_policy")
+	if not insurance_policy and encounter.get("appointment"):
+		insurance_policy = frappe.db.get_value(
+			"Patient Appointment", encounter.appointment, "insurance_policy"
+		)
+	inpatient_record.insurance_policy = insurance_policy
 	inpatient_record.status = "Admission Scheduled"
 	inpatient_record.save(ignore_permissions=True)
 	return inpatient_record.name

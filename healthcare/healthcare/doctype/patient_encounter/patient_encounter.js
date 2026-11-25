@@ -356,6 +356,15 @@ frappe.ui.form.on("Patient Encounter", {
 		apply_code_sm_filter_to_child(frm, "priority", table_list, "Priority");
 		apply_code_sm_filter_to_child(frm, "intent", table_list, "Intent");
 
+		frm.set_query("insurance_policy", function () {
+			return {
+				filters: {
+					patient: frm.doc.patient,
+					docstatus: 1,
+				},
+			};
+		});
+
 		frm.fields_dict["doctor_advice_template"].get_query = function () {
 			return {
 				query: "healthcare.healthcare.doctype.patient_encounter.patient_encounter.get_filtered_advice_template",
@@ -401,6 +410,9 @@ frappe.ui.form.on("Patient Encounter", {
 						practitioner: data.message.practitioner,
 						invoiced: data.message.invoiced,
 						company: data.message.company,
+						appointment_type: data.message.appointment_type,
+						insurance_policy: data.message.insurance_policy,
+						insurance_coverage: data.message.insurance_coverage,
 					};
 					frm.set_value(values);
 					frm.set_df_property("patient", "read_only", 1);
@@ -417,6 +429,9 @@ frappe.ui.form.on("Patient Encounter", {
 				patient_age: "",
 				inpatient_record: "",
 				inpatient_status: "",
+				appointment_type: "",
+				insurance_policy: "",
+				insurance_coverage: "",
 			};
 			frm.set_value(values);
 			frm.set_df_property("patient", "read_only", 0);

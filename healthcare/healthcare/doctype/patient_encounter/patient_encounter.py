@@ -294,6 +294,7 @@ class PatientEncounter(Document):
 				"order_date": self.encounter_date,
 				"order_time": self.encounter_time,
 				"company": self.company,
+				"insurance_policy": self.get("insurance_policy"),
 				"status": "draft-Medication Request Status" if medication_request else "draft-Request Status",
 				"patient": self.get("patient"),
 				"practitioner": self.practitioner,
