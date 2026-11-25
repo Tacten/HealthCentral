@@ -135,23 +135,20 @@ class TestPatientEncounter(IntegrationTestCase):
 
 		policy_male = get_new_insurance_policy(self.patient_male.name)
 		policy_male.submit()
-		policy_female = get_new_insurance_policy(self.patient_female.name)
-		policy_female.submit()
 
 		encounter = frappe.get_doc(
 			{
 				"doctype": "Patient Encounter",
-				"patient": self.patient_female.name,
+				"patient": self.patient_male.name,
 				"practitioner": self.practitioner.name,
 				"appointment_type": create_appointment_type().name,
-				"insurance_policy": policy_female.name,
 			}
 		)
 		encounter.insert()
 
 		encounter = frappe.get_doc("Patient Encounter", encounter.name)
-		encounter.patient = self.patient_male.name
-		encounter.insurance_policy = policy_female.name
+		encounter.patient = self.patient_female.name
+		encounter.insurance_policy = policy_male.name
 		self.assertRaises(frappe.ValidationError, encounter.save)
 
 	def test_insurance_policy_must_belong_to_patient(self):
