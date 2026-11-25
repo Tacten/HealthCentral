@@ -294,7 +294,6 @@ class PatientEncounter(Document):
 				"order_date": self.encounter_date,
 				"order_time": self.encounter_time,
 				"company": self.company,
-				"insurance_policy": self.get("insurance_policy"),
 				"status": "draft-Medication Request Status" if medication_request else "draft-Request Status",
 				"patient": self.get("patient"),
 				"practitioner": self.practitioner,
@@ -344,6 +343,7 @@ class PatientEncounter(Document):
 		else:
 			order.update(
 				{
+					"insurance_policy": self.get("insurance_policy"),
 					"template_dt": template_doc.get("doctype"),
 					"template_dn": template_doc.get("name"),
 					# "patient_care_type": line_item.patient_care_type

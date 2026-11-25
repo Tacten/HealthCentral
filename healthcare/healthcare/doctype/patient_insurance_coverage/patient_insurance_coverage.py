@@ -367,7 +367,7 @@ def sync_coverage_status_to_linked_docs(coverage_name, status):
 	if not coverage_name or not status:
 		return
 
-	for doctype in ("Patient Appointment", "Service Request"):
+	for doctype in ("Patient Appointment", "Patient Encounter", "Service Request"):
 		for docname in frappe.get_all(
 			doctype, filters={"insurance_coverage": coverage_name}, pluck="name"
 		):
